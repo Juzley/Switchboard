@@ -14,4 +14,5 @@ add_executable(
     switchboard.c game.c gamestate.c menu_main.c util.c)
 target_link_libraries(${PROJECT_NAME} ${SDL2_LIBRARY}
                                       ${SDL2_IMAGE_LIBRARIES}
+                                      ${SDL2_TTF_LIBRARIES}
                                       m)

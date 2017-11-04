@@ -1,5 +1,6 @@
 #include <stdbool.h>
 #include <SDL2/SDL.h>
+#include <SDL2/SDL_ttf.h>
 #include "gamestate.h"
 #include "menu_main.h"
 #include "game.h"
@@ -16,6 +17,8 @@ main (int argc, char *argv[])
     uint32_t             ticks;
     uint32_t             frametime;
 
+    // TODO: Error handling basically everywhere!
+
     (void)SDL_Init(SDL_INIT_VIDEO);
     window = SDL_CreateWindow("Switchboard",
                               SDL_WINDOWPOS_UNDEFINED,
@@ -24,6 +27,7 @@ main (int argc, char *argv[])
                               SDL_WINDOW_SHOWN);
     renderer = SDL_CreateRenderer(window, -1, 0);
     (void)SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);
+    (void)TTF_Init();
 
     sb_game_setup(renderer);
     sb_menu_main_setup(renderer);
@@ -53,6 +57,7 @@ main (int argc, char *argv[])
     sb_menu_main_cleanup();
     sb_game_cleanup();
 
+    TTF_Quit();
     SDL_DestroyRenderer(renderer);
     SDL_DestroyWindow(window);
     SDL_Quit();

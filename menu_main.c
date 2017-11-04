@@ -3,6 +3,9 @@
 #include "game.h"
 
 
+#define FONT_NAME
+#define FONT_SIZE
+
 static void
 sb_menu_main_event (SDL_Event *e,
                     void      *context)
@@ -34,6 +37,10 @@ sb_menu_main_draw (SDL_Renderer *renderer,
 void
 sb_menu_main_setup (SDL_Renderer *renderer)
 {
+    TTF_Font *font = TTF_OpenFont(FONT_NAME, FONT_SIZE);
+    SDL_Surface *surf = TTF_RenderText_Solid(font,
+                                             "Start Game"
+
 }
 
 
