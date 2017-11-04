@@ -6,7 +6,7 @@
  * Max numbers of game entities, for sizing arrays.
  */
 #define MAX_CUSTOMERS 32
-#define MAX_CABLES 5
+#define MAX_CABLES 32
 
 
 /*
@@ -22,6 +22,13 @@
  */
 #define HANGUP_TIME_MIN 5000
 #define HANGUP_TIME_MAX 10000
+
+
+/*
+ * The range of times (in ms) a customer will take to answer the phone.
+ */
+#define ANSWER_TIME_MIN 500
+#define ANSWER_TIME_MAX 5000
 
 
 /*
@@ -46,15 +53,6 @@ typedef enum {
 
 
 /*
- * Enumeration of the two different ends of a cable.
- */
-typedef enum {
-    CABLE_END_LEFT,
-    CABLE_END_RIGHT
-} sb_cable_end_type;
-
-
-/*
  * There is a circular depenency between cables and customers,
  * so need a forward declaration here.
  */
@@ -73,7 +71,6 @@ typedef struct sb_game_customer {
     SDL_Rect                 mugshot_rect;
     SDL_Color                color;
     sb_cable_type           *port_cable;
-    sb_cable_end_type        port_cable_end;
     struct sb_game_customer *target_cust;
 } sb_game_customer_type;
 
@@ -81,15 +78,14 @@ typedef struct sb_game_customer {
 /*
  * Structure containing all information about a cable, including
  * the associated buttons.
- * TODO: Consider having a set of buttons for each end of the cable.
  */
 struct sb_cable {
-    sb_game_customer_type *left_customer;
-    sb_game_customer_type *right_customer; 
-    SDL_Rect               left_cable_base_rect;
-    SDL_Rect               right_cable_base_rect;
+    size_t                 index;
+    sb_game_customer_type *customer;
+    SDL_Rect               cable_base_rect;
     SDL_Rect               speak_button_rect;
     SDL_Rect               dial_button_rect;
+    bool                   speak_active;
     SDL_Color              color;
 };
 
@@ -105,7 +101,6 @@ typedef struct sb_game {
     size_t                  cable_count;
     sb_cable_type           cables[MAX_CABLES];
     sb_cable_type          *held_cable;
-    sb_cable_end_type       held_cable_end;
 } sb_game_type;
 
 
@@ -173,17 +168,17 @@ sb_game_find_target_customer (sb_game_customer_type *src_cust,
  * there is no connected customer.
  */
 static sb_game_customer_type *
-sb_game_find_connected_customer (sb_game_customer_type *cust)
+sb_game_find_connected_customer (sb_game_customer_type *cust,
+                                 sb_game_handle_type    game)
 {
     sb_game_customer_type *result = NULL;
     sb_cable_type         *cable = cust->port_cable;
+    sb_cable_type         *matching_cable;
 
     if (cable != NULL) {
-        if (cable->left_customer == cust) {
-            result = cable->right_customer;
-        } else if (cable->right_customer == cust) {
-            result = cable->left_customer;
-        }
+        matching_cable = &game->cables[
+                    cable->index % 2 ? cable->index + 1 : cable->index - 1];
+        result = matching_cable->customer;
     }
 
     return (result);
@@ -213,36 +208,30 @@ sb_game_mouse_button_event (SDL_MouseButtonEvent *e,
              * Check whether this is picking up a new cable end from its base.
              */
             cable = &game->cables[i];
-            if (cable->left_customer == NULL &&
-                sb_point_in_rect(e->x, e->y,
-                                 &cable->left_cable_base_rect)) {
+            if (cable->customer == NULL &&
+                sb_point_in_rect(e->x, e->y, &cable->cable_base_rect)) {
                 game->held_cable = cable;
-                game->held_cable_end = CABLE_END_LEFT;
-            } else if (cable->right_customer == NULL &&
-                       sb_point_in_rect(e->x, e->y,
-                                        &cable->right_cable_base_rect)) {
-                game->held_cable = cable;
-                game->held_cable_end = CABLE_END_RIGHT;
             }
 
             /*
              * Check whether we've hit a talk button.
              */
-            if (sb_point_in_rect(e->x, e->y,
-                                 &cable->speak_button_rect)) {
-                if (cable->left_customer != NULL &&
-                    cable->left_customer->line_state ==
-                                                LINE_STATE_DIALING) {
-                    cable->left_customer->line_state =
-                                                LINE_STATE_OPERATOR_REQUEST;
-                }
+            if (cable->customer != NULL &&
+                cable->customer->line_state == LINE_STATE_DIALING &&
+                sb_point_in_rect(e->x, e->y, &cable->speak_button_rect)) {
+                cable->customer->line_state = LINE_STATE_OPERATOR_REQUEST;
+            }
 
-                if (cable->right_customer != NULL &&
-                    cable->right_customer->line_state ==
-                                                LINE_STATE_DIALING) {
-                    cable->right_customer->line_state =
-                                                LINE_STATE_OPERATOR_REQUEST;
-                }
+            /*
+             * Check whether we've hit a dial button.
+             */
+            if (cable->customer != NULL &&
+                cable->customer->line_state == LINE_STATE_IDLE &&
+                sb_point_in_rect(e->x, e->y, &cable->dial_button_rect)) {
+                cable->customer->line_state = LINE_STATE_ANSWERING;
+                cable->customer->update_time =
+                                random_range(game->gametime + ANSWER_TIME_MIN,
+                                             game->gametime + ANSWER_TIME_MAX);
             }
         }
 
@@ -252,7 +241,6 @@ sb_game_mouse_button_event (SDL_MouseButtonEvent *e,
             if (cust->port_cable != NULL &&
                 sb_point_in_rect(e->x, e->y, &cust->port_rect)) {
                 game->held_cable = cust->port_cable;
-                game->held_cable_end = cust->port_cable_end;
 
                 /*
                  * Check if we've interupted a call, and move all involved
@@ -265,7 +253,7 @@ sb_game_mouse_button_event (SDL_MouseButtonEvent *e,
                           cust->line_state == LINE_STATE_BUSY) {
                     // TODO: Lose points.
                     cust->line_state = LINE_STATE_IDLE;
-                    other_cust = sb_game_find_connected_customer(cust);
+                    other_cust = sb_game_find_connected_customer(cust, game);
                     if (other_cust != NULL) {
                         other_cust->line_state = LINE_STATE_IDLE;
                     }
@@ -283,14 +271,8 @@ sb_game_mouse_button_event (SDL_MouseButtonEvent *e,
                 // TODO: Allow putting back in the same port.
                 if (sb_point_in_rect(e->x, e->y, &cust->port_rect) &&
                     cust->port_cable == NULL) {
-
                     cust->port_cable = game->held_cable;
-                    cust->port_cable_end = game->held_cable_end;
-                    if (game->held_cable_end == CABLE_END_LEFT) {
-                        game->held_cable->left_customer = cust;
-                    } else {
-                        game->held_cable->right_customer = cust;
-                    }
+                    game->held_cable->customer = cust;
                 }
             }
 
@@ -327,6 +309,10 @@ sb_game_customer_update (sb_game_customer_type *cust,
     case LINE_STATE_DIALING:
         // TODO: Lose points for this.
         cust->line_state = LINE_STATE_IDLE;
+        break;
+
+    case LINE_STATE_ANSWERING:
+        cust->line_state = LINE_STATE_OPERATOR_REPLY;
         break;
 
     case LINE_STATE_IDLE:
@@ -372,7 +358,7 @@ sb_game_update (uint32_t            frametime,
      */
     for (i = 0; i < game->customer_count; i++) {
         cust = &game->customers[i];
-        if (game->gametime >= cust->update_time) {
+        if (cust->update_time != 0 && game->gametime >= cust->update_time) {
             sb_game_customer_update(cust, game);
         }
     }
@@ -418,8 +404,7 @@ sb_game_draw (SDL_Renderer        *renderer,
     for (i = 0; i < game->cable_count; i++) {
         cable = &game->cables[i];
         SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255);
-        SDL_RenderDrawRect(renderer, &cable->left_cable_base_rect);
-        SDL_RenderDrawRect(renderer, &cable->right_cable_base_rect);
+        SDL_RenderDrawRect(renderer, &cable->cable_base_rect);
         SDL_RenderDrawRect(renderer, &cable->speak_button_rect);
         SDL_RenderDrawRect(renderer, &cable->dial_button_rect);
     }
@@ -429,12 +414,7 @@ sb_game_draw (SDL_Renderer        *renderer,
         cust = &game->customers[i];
         if (cust->port_cable != NULL) {
             cable = cust->port_cable;
-
-            if (cust->port_cable_end == CABLE_END_LEFT) {
-                sb_rect_center(&cable->left_cable_base_rect, &startx, &starty);
-            } else {
-                sb_rect_center(&cable->right_cable_base_rect, &startx, &starty);
-            }
+            sb_rect_center(&cable->cable_base_rect, &startx, &starty);
             sb_rect_center(&cust->port_rect, &endx, &endy);
 
             SDL_SetRenderDrawColor(renderer,
@@ -456,11 +436,7 @@ sb_game_draw (SDL_Renderer        *renderer,
         cable = game->held_cable;
 
         (void)SDL_GetMouseState(&endx, &endy);
-        if (game->held_cable_end == CABLE_END_LEFT) {
-            sb_rect_center(&cable->left_cable_base_rect, &startx, &starty);
-        } else {
-            sb_rect_center(&cable->right_cable_base_rect, &startx, &starty);
-        }
+        sb_rect_center(&cable->cable_base_rect, &startx, &starty);
 
         SDL_SetRenderDrawColor(renderer,
                                cable->color.r,
@@ -497,6 +473,7 @@ sb_game_handle_type
 sb_game_setup (void)
 {
     size_t                 i;
+    size_t                 j;
     sb_game_customer_type *cust;
     sb_cable_type         *cable;
     sb_game_handle_type    game;
@@ -508,7 +485,7 @@ sb_game_setup (void)
 
     // TODO: Eventually layout etc will be done per-level etc.
     game->customer_count = 16;
-    game->cable_count = 3;
+    game->cable_count = 6;
 
     game->held_cable = NULL;
 
@@ -537,28 +514,28 @@ sb_game_setup (void)
         cust->color.a = 255;
     }
 
-    for (i = 0; i < game->cable_count; i++) {
-        cable = &game->cables[i];
+    for (i = 0; i < game->cable_count / 2; i++) {
+        for (j = 0; j < 2; j++) {
+            cable = &game->cables[i * 2 + j];
 
-        cable->left_cable_base_rect.x = i * 100;
-        cable->left_cable_base_rect.y = 400;
-        cable->left_cable_base_rect.w = 32;
-        cable->left_cable_base_rect.h = 32;
+            cable->index = i * 2 + j;
 
-        cable->right_cable_base_rect = cable->left_cable_base_rect;
-        cable->right_cable_base_rect.x =
-            cable->right_cable_base_rect.x + cable->right_cable_base_rect.w;
+            cable->cable_base_rect.x = i * 100 + j * 32;
+            cable->cable_base_rect.y = 400;
+            cable->cable_base_rect.w = 32;
+            cable->cable_base_rect.h = 32;
 
-        cable->speak_button_rect = cable->left_cable_base_rect;
-        cable->speak_button_rect.y += 48;
-        
-        cable->dial_button_rect = cable->speak_button_rect;
-        cable->dial_button_rect.y += 48;
+            cable->speak_button_rect = cable->cable_base_rect;
+            cable->speak_button_rect.y += 48;
 
-        cable->color.r = i * 75;
-        cable->color.g = 255 - cust->color.r;
-        cable->color.b = (cust->color.r * cust->color.g) % 255;
-        cable->color.a = 255;
+            cable->dial_button_rect = cable->speak_button_rect;
+            cable->dial_button_rect.y += 48;
+
+            cable->color.r = i * 75;
+            cable->color.g = 255 - cust->color.r;
+            cable->color.b = (cust->color.r * cust->color.g) % 255;
+            cable->color.a = 255;
+        }
     }
 
     return (game);
