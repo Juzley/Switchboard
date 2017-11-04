@@ -39,6 +39,7 @@ typedef enum {
     LINE_STATE_IDLE,
     LINE_STATE_DIALING,
     LINE_STATE_OPERATOR_REQUEST,
+    LINE_STATE_ANSWERING,
     LINE_STATE_OPERATOR_REPLY,
     LINE_STATE_BUSY,
 } sb_line_state_type;
@@ -64,21 +65,23 @@ typedef struct sb_cable sb_cable_type;
  * Structure containing all information about a customer.
  */
 typedef struct sb_game_customer {
-    size_t              index;
-    sb_line_state_type  line_state;
-    uint32_t            update_time;
-    uint16_t            score;
-    SDL_Rect            port_rect;
-    SDL_Rect            mugshot_rect;
-    SDL_Color           color;
-    sb_cable_type      *port_cable;
-    sb_cable_end_type   port_cable_end;
+    size_t                   index;
+    sb_line_state_type       line_state;
+    uint32_t                 update_time;
+    uint16_t                 score;
+    SDL_Rect                 port_rect;
+    SDL_Rect                 mugshot_rect;
+    SDL_Color                color;
+    sb_cable_type           *port_cable;
+    sb_cable_end_type        port_cable_end;
+    struct sb_game_customer *target_cust;
 } sb_game_customer_type;
 
 
 /*
  * Structure containing all information about a cable, including
  * the associated buttons.
+ * TODO: Consider having a set of buttons for each end of the cable.
  */
 struct sb_cable {
     sb_game_customer_type *left_customer;
@@ -89,7 +92,6 @@ struct sb_cable {
     SDL_Rect               dial_button_rect;
     SDL_Color              color;
 };
-
 
 
 /*
@@ -146,6 +148,10 @@ sb_game_find_idle_customer (sb_game_handle_type game)
 }
 
 
+/*
+ * Select a random target customer for a call - note that this may be a
+ * customer who is not idle.
+ */
 static sb_game_customer_type *
 sb_game_find_target_customer (sb_game_customer_type *src_cust,
                               sb_game_handle_type    game)
@@ -163,6 +169,29 @@ sb_game_find_target_customer (sb_game_customer_type *src_cust,
 
 
 /*
+ * Find the customer a given customer is currently connected to, or NULL if
+ * there is no connected customer.
+ */
+static sb_game_customer_type *
+sb_game_find_connected_customer (sb_game_customer_type *cust)
+{
+    sb_game_customer_type *result = NULL;
+    sb_cable_type         *cable = cust->port_cable;
+
+    if (cable != NULL) {
+        if (cable->left_customer == cust) {
+            result = cable->right_customer;
+        } else if (cable->right_customer == cust) {
+            result = cable->left_customer;
+        }
+    }
+
+    return (result);
+}
+                                 
+
+
+/*
  * Handle a mouse button down or up event.
  */
 static void
@@ -172,42 +201,78 @@ sb_game_mouse_button_event (SDL_MouseButtonEvent *e,
     size_t                 i;
     sb_cable_type         *cable;
     sb_game_customer_type *cust;
+    sb_game_customer_type *other_cust;
 
     if (e->button != SDL_BUTTON_LEFT) {
         return;
     }
 
     if (e->type == SDL_MOUSEBUTTONDOWN) {
-        if (game->held_cable == NULL) {
-            // Check whether this is picking up a new cable end from the base.
-            for (i = 0; i < game->cable_count; i++) {
-                cable = &game->cables[i];
-                if (cable->left_customer == NULL &&
-                    sb_point_in_rect(e->x, e->y,
-                                     &cable->left_cable_base_rect)) {
-                    game->held_cable = cable;
-                    game->held_cable_end = CABLE_END_LEFT;
-                } else if (cable->right_customer == NULL &&
-                           sb_point_in_rect(e->x, e->y,
-                                            &cable->right_cable_base_rect)) {
-                    game->held_cable = cable;
-                    game->held_cable_end = CABLE_END_RIGHT;
-                }
+        for (i = 0; i < game->cable_count; i++) {
+            /*
+             * Check whether this is picking up a new cable end from its base.
+             */
+            cable = &game->cables[i];
+            if (cable->left_customer == NULL &&
+                sb_point_in_rect(e->x, e->y,
+                                 &cable->left_cable_base_rect)) {
+                game->held_cable = cable;
+                game->held_cable_end = CABLE_END_LEFT;
+            } else if (cable->right_customer == NULL &&
+                       sb_point_in_rect(e->x, e->y,
+                                        &cable->right_cable_base_rect)) {
+                game->held_cable = cable;
+                game->held_cable_end = CABLE_END_RIGHT;
             }
 
-            // Check whether this is picking up a cable end from a customer.
-            for (i = 0; i < game->customer_count; i++) {
-                cust = &game->customers[i];
-                if (cust->port_cable != NULL &&
-                    sb_point_in_rect(e->x, e->y, &cust->port_rect)) {
-                    game->held_cable = cust->port_cable;
-                    game->held_cable_end = cust->port_cable_end;
-                    cust->port_cable = NULL;
+            /*
+             * Check whether we've hit a talk button.
+             */
+            if (sb_point_in_rect(e->x, e->y,
+                                 &cable->speak_button_rect)) {
+                if (cable->left_customer != NULL &&
+                    cable->left_customer->line_state ==
+                                                LINE_STATE_DIALING) {
+                    cable->left_customer->line_state =
+                                                LINE_STATE_OPERATOR_REQUEST;
+                }
+
+                if (cable->right_customer != NULL &&
+                    cable->right_customer->line_state ==
+                                                LINE_STATE_DIALING) {
+                    cable->right_customer->line_state =
+                                                LINE_STATE_OPERATOR_REQUEST;
                 }
             }
-            
-            // Check whether this is hitting a button.
-            // TODO
+        }
+
+        // Check whether this is picking up a cable end from a customer.
+        for (i = 0; i < game->customer_count; i++) {
+            cust = &game->customers[i];
+            if (cust->port_cable != NULL &&
+                sb_point_in_rect(e->x, e->y, &cust->port_rect)) {
+                game->held_cable = cust->port_cable;
+                game->held_cable_end = cust->port_cable_end;
+
+                /*
+                 * Check if we've interupted a call, and move all involved
+                 * customers back to idle.
+                 */
+                if (cust->line_state == LINE_STATE_OPERATOR_REQUEST) {
+                    cust->line_state = LINE_STATE_IDLE;
+                    // TODO: Lose points.
+                } else if(cust->line_state == LINE_STATE_OPERATOR_REPLY ||
+                          cust->line_state == LINE_STATE_BUSY) {
+                    // TODO: Lose points.
+                    cust->line_state = LINE_STATE_IDLE;
+                    other_cust = sb_game_find_connected_customer(cust);
+                    if (other_cust != NULL) {
+                        other_cust->line_state = LINE_STATE_IDLE;
+                    }
+                }
+
+                cust->port_cable = NULL;
+            }
         }
     } else if (e->type == SDL_MOUSEBUTTONUP) {
         // Check whether we're putting a cable somewhere.
@@ -254,6 +319,23 @@ sb_game_event (SDL_Event           *e,
 }
 
 
+static void
+sb_game_customer_update (sb_game_customer_type *cust,
+                         sb_game_handle_type    game)
+{
+    switch (cust->line_state) {
+    case LINE_STATE_DIALING:
+        // TODO: Lose points for this.
+        cust->line_state = LINE_STATE_IDLE;
+        break;
+
+    case LINE_STATE_IDLE:
+    default:
+        break;
+    }
+}
+
+
 /*
  * See comment in game.h for more details.
  */
@@ -276,6 +358,7 @@ sb_game_update (uint32_t            frametime,
         tgt_cust = sb_game_find_target_customer(src_cust, game);
 
         src_cust->line_state = LINE_STATE_DIALING;
+        src_cust->target_cust = tgt_cust;
         src_cust->update_time = random_range(game->gametime + HANGUP_TIME_MIN,
                                              game->gametime + HANGUP_TIME_MAX);
 
@@ -289,9 +372,8 @@ sb_game_update (uint32_t            frametime,
      */
     for (i = 0; i < game->customer_count; i++) {
         cust = &game->customers[i];
-        if (cust->line_state != LINE_STATE_IDLE &&
-            game->gametime >= cust->update_time) {
-            // TODO
+        if (game->gametime >= cust->update_time) {
+            sb_game_customer_update(cust, game);
         }
     }
 }
@@ -311,6 +393,7 @@ sb_game_draw (SDL_Renderer        *renderer,
     int                    endy;
     sb_game_customer_type *cust;
     sb_cable_type         *cable;
+    SDL_Rect               rect;
 
     SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
     SDL_RenderClear(renderer);
@@ -385,6 +468,22 @@ sb_game_draw (SDL_Renderer        *renderer,
                                cable->color.b,
                                cable->color.a);
         SDL_RenderDrawLine(renderer, startx, starty, endx, endy);
+    }
+
+    // Draw "conversations" for customers who are talking to the operator.
+    for (i = 0; i < game->customer_count; i++) {
+        cust = &game->customers[i];
+        if (cust->line_state == LINE_STATE_OPERATOR_REQUEST) {
+            rect = cust->mugshot_rect;
+            rect.x += 16;
+            rect.y += 16;
+            SDL_SetRenderDrawColor(renderer,
+                                   cust->target_cust->color.r,
+                                   cust->target_cust->color.g,
+                                   cust->target_cust->color.b,
+                                   cust->target_cust->color.a);
+            SDL_RenderDrawRect(renderer, &rect);
+        }
     }
 
     SDL_RenderPresent(renderer);
