@@ -21,6 +21,8 @@ typedef struct sb_gamestate {
 
 
 void sb_gamestate_push(sb_gamestate_type *state);
+void sb_gamestate_replace(sb_gamestate_type *state);
+void sb_gamestate_replace_all(sb_gamestate_type *state);
 void sb_gamestate_pop(void);
 void sb_gamestate_event(SDL_Event *e);
 void sb_gamestate_update(uint32_t frametime);

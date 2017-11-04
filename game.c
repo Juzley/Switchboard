@@ -1,4 +1,5 @@
 #include <SDL2/SDL.h>
+#include "gamestate.h"
 #include "game.h"
 #include "util.h"
 #include "math.h"
@@ -120,9 +121,12 @@ typedef struct sb_game {
 } sb_game_type;
 
 
+static sb_game_type sb_game;
+
+
 static void
 sb_game_update_customer_state (sb_game_customer_type *cust,
-                               sb_game_handle_type    game,
+                               sb_game_type          *game,
                                sb_line_state_type     state)
 {
     cust->line_state = state;
@@ -137,7 +141,7 @@ sb_game_update_customer_state (sb_game_customer_type *cust,
  * Find an idle customer, or return NULL if there are none.
  */
 static sb_game_customer_type *
-sb_game_find_idle_customer (sb_game_handle_type game)
+sb_game_find_idle_customer (sb_game_type *game)
 {
     size_t                 i;
     size_t                 idle_count = 0;
@@ -178,7 +182,7 @@ sb_game_find_idle_customer (sb_game_handle_type game)
  */
 static sb_game_customer_type *
 sb_game_find_target_customer (sb_game_customer_type *src_cust,
-                              sb_game_handle_type    game)
+                              sb_game_type          *game)
 {
     size_t                 result_index;
     sb_game_customer_type *result;
@@ -198,7 +202,7 @@ sb_game_find_target_customer (sb_game_customer_type *src_cust,
  */
 static sb_game_customer_type *
 sb_game_find_connected_customer (sb_game_customer_type *cust,
-                                 sb_game_handle_type    game)
+                                 sb_game_type          *game)
 {
     sb_game_customer_type *result = NULL;
     sb_cable_type         *cable = cust->port_cable;
@@ -215,8 +219,8 @@ sb_game_find_connected_customer (sb_game_customer_type *cust,
 
 
 static void
-sb_game_talk_button_press (sb_cable_type       *cable,
-                           sb_game_handle_type  game)
+sb_game_talk_button_press (sb_cable_type *cable,
+                           sb_game_type  *game)
 {
     sb_game_customer_type *other_cust;
 
@@ -270,7 +274,7 @@ sb_game_talk_button_press (sb_cable_type       *cable,
  */
 static void
 sb_game_mouse_button_event (SDL_MouseButtonEvent *e,
-                            sb_game_handle_type   game)
+                            sb_game_type         *game)
 {
     size_t                 i;
     sb_cable_type         *cable;
@@ -369,14 +373,14 @@ sb_game_mouse_button_event (SDL_MouseButtonEvent *e,
 /*
  * See comment in game.h for more details.
  */
-void
-sb_game_event (SDL_Event           *e,
-               sb_game_handle_type  game)
+static void
+sb_game_event (SDL_Event *e,
+               void      *context)
 {
     switch (e->type) {
     case SDL_MOUSEBUTTONDOWN:
     case SDL_MOUSEBUTTONUP:
-        sb_game_mouse_button_event(&e->button, game);
+        sb_game_mouse_button_event(&e->button, &sb_game);
         break;
 
     default:
@@ -387,7 +391,7 @@ sb_game_event (SDL_Event           *e,
 
 static void
 sb_game_customer_update (sb_game_customer_type *cust,
-                         sb_game_handle_type    game)
+                         sb_game_type          *game)
 {
     switch (cust->line_state) {
     case LINE_STATE_DIALING:
@@ -415,13 +419,14 @@ sb_game_customer_update (sb_game_customer_type *cust,
 /*
  * See comment in game.h for more details.
  */
-void
-sb_game_update (uint32_t            frametime,
-                sb_game_handle_type game)
+static void
+sb_game_update (uint32_t  frametime,
+                void     *context)
 {
     sb_game_customer_type *src_cust;
     sb_game_customer_type *tgt_cust;
     sb_game_customer_type *cust;
+    sb_game_type          *game = &sb_game;
     size_t                 i;
 
     game->gametime += frametime;
@@ -452,14 +457,14 @@ sb_game_update (uint32_t            frametime,
 }
 
 
-void
-sb_game_draw_cable_cord (SDL_Renderer        *renderer,
-                         int                  startx,
-                         int                  starty,
-                         int                  endx,
-                         int                  endy,
-                         SDL_Color            color,
-                         sb_game_handle_type  game)
+static void
+sb_game_draw_cable_cord (SDL_Renderer *renderer,
+                         int           startx,
+                         int           starty,
+                         int           endx,
+                         int           endy,
+                         SDL_Color     color,
+                         sb_game_type *game)
 {
     int      distx = startx - endx;
     int      disty = starty - endy;
@@ -504,9 +509,9 @@ sb_game_draw_cable_cord (SDL_Renderer        *renderer,
 /*
  * See comment in game.h for more details.
  */
-void
-sb_game_draw (SDL_Renderer        *renderer,
-              sb_game_handle_type  game)
+static void
+sb_game_draw (SDL_Renderer *renderer,
+              void         *context)
 {
     ssize_t                i;
     int                    startx;
@@ -517,9 +522,7 @@ sb_game_draw (SDL_Renderer        *renderer,
     sb_game_customer_type *cust;
     sb_cable_type         *cable;
     SDL_Rect               rect;
-
-    SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
-    SDL_RenderClear(renderer);
+    sb_game_type          *game = &sb_game;
 
     rect.x = 0;
     rect.y = 0;
@@ -673,28 +676,26 @@ sb_game_draw (SDL_Renderer        *renderer,
             }
         }
     }
-
-    SDL_RenderPresent(renderer);
 }
 
 
 /*
  * See comment in game.h for more details.
  */
-sb_game_handle_type
+void
 sb_game_setup (SDL_Renderer *renderer)
 {
     size_t                 i;
     size_t                 j;
     sb_game_customer_type *cust;
     sb_cable_type         *cable;
-    sb_game_handle_type    game;
+    sb_game_type          *game;
     uint8_t                columns;
     uint8_t                rows;
     uint32_t               column_spacing;
     uint32_t               row_spacing;
 
-    game = calloc(1, sizeof(*game));
+    game = &sb_game;
     
     // TODO: Proper media loading.
     game->console_texture = load_texture("media/console.png", renderer);
@@ -780,8 +781,6 @@ sb_game_setup (SDL_Renderer *renderer)
             cable->color.a = 255;
         }
     }
-
-    return (game);
 }
 
 
@@ -789,8 +788,10 @@ sb_game_setup (SDL_Renderer *renderer)
  * See comment in game.h for more details.
  */
 void
-sb_game_cleanup(sb_game_handle_type game)
+sb_game_cleanup(void)
 {
+    sb_game_type *game = &sb_game;
+
     free_texture(game->speech_bubble_texture);
     free_texture(game->mug_background_texture);
     free_texture(game->plug_loose_texture);
@@ -799,5 +800,23 @@ sb_game_cleanup(sb_game_handle_type game)
     free_texture(game->lamp_texture);
     free_texture(game->port_texture);
     free_texture(game->console_texture);
-    free(game);
 }
+
+
+static sb_gamestate_type sb_game_gamestate = {
+    .event_cb = &sb_game_event,
+    .update_cb = &sb_game_update,
+    .draw_cb = &sb_game_draw,
+    .ctx = NULL,
+};
+
+
+/*
+ * See comment in game.h for more details.
+ */
+sb_gamestate_type *
+sb_game_get_gamestate(void)
+{
+    return &sb_game_gamestate;
+}
+

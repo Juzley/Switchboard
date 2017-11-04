@@ -10,7 +10,7 @@ typedef struct sb_gamestate_mgr {
 
 
 #define TOP_GAMESTATE                                                         \
-    (sb_gamestate_mgr.gamestate_stack[sb_gamestate_mgr.gamestate_count])
+    (sb_gamestate_mgr.gamestate_stack[sb_gamestate_mgr.gamestate_count - 1])
 
 
 static sb_gamestate_mgr_type sb_gamestate_mgr;
@@ -22,6 +22,21 @@ sb_gamestate_push (sb_gamestate_type *state)
     assert(sb_gamestate_mgr.gamestate_count < MAX_GAMESTATES);
     sb_gamestate_mgr.gamestate_stack[
         sb_gamestate_mgr.gamestate_count++] = *state;
+}
+
+
+void
+sb_gamestate_replace (sb_gamestate_type *state)
+{
+    TOP_GAMESTATE = *state;
+}
+
+
+void
+sb_gamestate_replace_all (sb_gamestate_type *state)
+{
+    sb_gamestate_mgr.gamestate_count = 1;
+    TOP_GAMESTATE = *state;
 }
 
 

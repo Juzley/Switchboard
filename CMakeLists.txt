@@ -9,7 +9,9 @@ find_package(SDL2_image REQUIRED)
 include_directories(${SDL2_INCLUDE_DIR}
                     ${SDL2_IMAGE_INCLUDE_DIR})
 
-add_executable(${PROJECT_NAME} switchboard.c game.c gamestate.c util.c)
+add_executable(
+    ${PROJECT_NAME}
+    switchboard.c game.c gamestate.c menu_main.c util.c)
 target_link_libraries(${PROJECT_NAME} ${SDL2_LIBRARY}
                                       ${SDL2_IMAGE_LIBRARIES}
                                       m)

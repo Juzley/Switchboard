@@ -1,5 +1,7 @@
 #include <stdbool.h>
 #include <SDL2/SDL.h>
+#include "gamestate.h"
+#include "menu_main.h"
 #include "game.h"
 
 
@@ -13,7 +15,6 @@ main (int argc, char *argv[])
     uint32_t             last_ticks = 0;
     uint32_t             ticks;
     uint32_t             frametime;
-    sb_game_handle_type  game;
 
     (void)SDL_Init(SDL_INIT_VIDEO);
     window = SDL_CreateWindow("Switchboard",
@@ -24,14 +25,16 @@ main (int argc, char *argv[])
     renderer = SDL_CreateRenderer(window, -1, 0);
     (void)SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);
 
-    game = sb_game_setup(renderer);
+    sb_game_setup(renderer);
+    sb_menu_main_setup(renderer);
+    sb_gamestate_push(sb_menu_main_get_gamestate());
 
     while (run) {
         while (SDL_PollEvent(&e)) {
             if (e.type == SDL_QUIT) {
                 run = false;
             } else {
-                sb_game_event(&e, game);
+                sb_gamestate_event(&e);
             }
         }
 
@@ -39,11 +42,16 @@ main (int argc, char *argv[])
         frametime = ticks - last_ticks;
         last_ticks = ticks;
 
-        sb_game_update(frametime, game);
-        sb_game_draw(renderer, game);
+        sb_gamestate_update(frametime);
+
+        SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
+        SDL_RenderClear(renderer);
+        sb_gamestate_draw(renderer);
+        SDL_RenderPresent(renderer);
     }
 
-    sb_game_cleanup(game);
+    sb_menu_main_cleanup();
+    sb_game_cleanup();
 
     SDL_DestroyRenderer(renderer);
     SDL_DestroyWindow(window);
