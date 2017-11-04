@@ -237,11 +237,13 @@ handle_mouse_button(SDL_MouseButtonEvent *e,
             // Check whether this is picking up a new cable end from the base.
             for (i = 0; i < game->cable_count; i++) {
                 cable = &game->cables[i];
-                if (point_in_rect(e->x, e->y, &cable->left_cable_base_rect)) {
+                if (cable->left_customer == NULL &&
+                    point_in_rect(e->x, e->y, &cable->left_cable_base_rect)) {
                     game->held_cable = cable;
                     game->held_cable_end = CABLE_END_LEFT;
-                } else if (point_in_rect(
-                                  e->x, e->y, &cable->right_cable_base_rect)) {
+                } else if (cable->right_customer == NULL &&
+                           point_in_rect(e->x, e->y,
+                                         &cable->right_cable_base_rect)) {
                     game->held_cable = cable;
                     game->held_cable_end = CABLE_END_RIGHT;
                 }
