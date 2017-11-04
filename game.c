@@ -459,6 +459,16 @@ sb_game_draw (SDL_Renderer        *renderer,
                                    cust->target_cust->color.b,
                                    cust->target_cust->color.a);
             SDL_RenderDrawRect(renderer, &rect);
+        } else if (cust->line_state == LINE_STATE_OPERATOR_REPLY) {
+            rect = cust->mugshot_rect;
+            rect.x += 16;
+            rect.y += 16;
+            SDL_SetRenderDrawColor(renderer,
+                                   cust->color.r,
+                                   cust->color.g,
+                                   cust->color.b,
+                                   cust->color.a);
+            SDL_RenderDrawRect(renderer, &rect);
         }
     }
 
