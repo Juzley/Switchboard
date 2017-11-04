@@ -27,5 +27,21 @@ sb_rect_center(SDL_Rect *rect, int *x, int *y)
     *y = rect->y + rect->h / 2;
 }
 
+/*
+ * Find a random number in the closed interval [0, max].
+ * Assumes 0 <= max <= RAND_MAX
+ */
+long random_at_most(long max);
+
+
+/*
+ * Find a random number in the closed interval [min, max].
+ */
+static inline long
+random_range (long min, long max)
+{
+    return min + random_at_most(max - min);
+}
+
 
 #endif /* __UTIL_H__ */

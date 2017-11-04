@@ -10,6 +10,28 @@
 
 
 /*
+ * The range of times (in ms) between new calls.
+ */
+#define NEW_CALL_TIME_MIN 1000
+#define NEW_CALL_TIME_MAX 10000
+
+
+/*
+ * The range of times (in ms) a customer will wait without a response from the
+ * operator.
+ */
+#define HANGUP_TIME_MIN 5000
+#define HANGUP_TIME_MAX 10000
+
+
+/*
+ * The range of times (in ms) a connected call will last.
+ */
+#define CALL_TIME_MIN 5000
+#define CALL_TIME_MAX 20000
+
+
+/*
  * Enumeration representing the state of an individual
  * customer on the switchboard.
  */
@@ -41,14 +63,17 @@ typedef struct sb_cable sb_cable_type;
 /*
  * Structure containing all information about a customer.
  */
-typedef struct sb_customer {
+typedef struct sb_game_customer {
+    size_t              index;
     sb_line_state_type  line_state;
+    uint32_t            update_time;
+    uint16_t            score;
     SDL_Rect            port_rect;
     SDL_Rect            mugshot_rect;
     SDL_Color           color;
     sb_cable_type      *port_cable;
     sb_cable_end_type   port_cable_end;
-} sb_customer_type;
+} sb_game_customer_type;
 
 
 /*
@@ -56,13 +81,13 @@ typedef struct sb_customer {
  * the associated buttons.
  */
 struct sb_cable {
-    sb_customer_type *left_customer;
-    sb_customer_type *right_customer; 
-    SDL_Rect          left_cable_base_rect;
-    SDL_Rect          right_cable_base_rect;
-    SDL_Rect          speak_button_rect;
-    SDL_Rect          dial_button_rect;
-    SDL_Color         color;
+    sb_game_customer_type *left_customer;
+    sb_game_customer_type *right_customer; 
+    SDL_Rect               left_cable_base_rect;
+    SDL_Rect               right_cable_base_rect;
+    SDL_Rect               speak_button_rect;
+    SDL_Rect               dial_button_rect;
+    SDL_Color              color;
 };
 
 
@@ -71,13 +96,70 @@ struct sb_cable {
  * Structure containing game state.
  */
 typedef struct sb_game {
-    size_t             customer_count;
-    sb_customer_type   customers[MAX_CUSTOMERS];
-    size_t             cable_count;
-    sb_cable_type      cables[MAX_CABLES];
-    sb_cable_type     *held_cable;
-    sb_cable_end_type  held_cable_end;
+    uint32_t                gametime;
+    uint32_t                next_call_time;
+    size_t                  customer_count;
+    sb_game_customer_type   customers[MAX_CUSTOMERS];
+    size_t                  cable_count;
+    sb_cable_type           cables[MAX_CABLES];
+    sb_cable_type          *held_cable;
+    sb_cable_end_type       held_cable_end;
 } sb_game_type;
+
+
+/*
+ * Find an idle customer, or return NULL if there are none.
+ */
+static sb_game_customer_type *
+sb_game_find_idle_customer (sb_game_handle_type game)
+{
+    size_t                 i;
+    size_t                 idle_count = 0;
+    size_t                 index;
+    size_t                 result_num;
+    sb_game_customer_type *result = NULL;
+
+    /*
+     * Count the number of idle customers.
+     */
+    for (i = 0; i < game->customer_count; i++) {
+        if (game->customers[i].line_state == LINE_STATE_IDLE) {
+            idle_count++;
+        }
+    }
+
+    if (idle_count >= 0) {
+        /*
+         * Pick a random idle customer, loop through the array skipping
+         * non-idle customers.
+         */
+        result_num = random_range(1, idle_count);
+        for (i = 0; result_num > 0 && i < game->customer_count; i++) {
+            if (game->customers[i].line_state == LINE_STATE_IDLE) {
+                result_num--;
+            }
+        }
+        result = &game->customers[i];
+    }
+
+    return result;
+}
+
+
+static sb_game_customer_type *
+sb_game_find_target_customer (sb_game_customer_type *src_cust,
+                              sb_game_handle_type    game)
+{
+    size_t                 result_index;
+    sb_game_customer_type *result;
+
+    result_index = random_at_most(game->customer_count - 2);
+    if (result_index >= src_cust->index) {
+        result_index++;
+    }
+
+    return &game->customers[result_index];
+}
 
 
 /*
@@ -87,9 +169,9 @@ static void
 sb_game_mouse_button_event (SDL_MouseButtonEvent *e,
                             sb_game_handle_type   game)
 {
-    size_t            i;
-    sb_cable_type    *cable;
-    sb_customer_type *cust;
+    size_t                 i;
+    sb_cable_type         *cable;
+    sb_game_customer_type *cust;
 
     if (e->button != SDL_BUTTON_LEFT) {
         return;
@@ -172,7 +254,6 @@ sb_game_event (SDL_Event           *e,
 }
 
 
-
 /*
  * See comment in game.h for more details.
  */
@@ -180,6 +261,39 @@ void
 sb_game_update (uint32_t            frametime,
                 sb_game_handle_type game)
 {
+    sb_game_customer_type *src_cust;
+    sb_game_customer_type *tgt_cust;
+    sb_game_customer_type *cust;
+    size_t                 i;
+
+    game->gametime += frametime;
+
+    if (game->gametime >= game->next_call_time) {
+        /*
+         * Initiate a new call.
+         */
+        src_cust = sb_game_find_idle_customer(game);
+        tgt_cust = sb_game_find_target_customer(src_cust, game);
+
+        src_cust->line_state = LINE_STATE_DIALING;
+        src_cust->update_time = random_range(game->gametime + HANGUP_TIME_MIN,
+                                             game->gametime + HANGUP_TIME_MAX);
+
+        game->next_call_time = random_range(
+                                        game->gametime + NEW_CALL_TIME_MIN,
+                                        game->gametime + NEW_CALL_TIME_MAX);
+    }
+
+    /*
+     * Perform any required customer transitions.
+     */
+    for (i = 0; i < game->customer_count; i++) {
+        cust = &game->customers[i];
+        if (cust->line_state != LINE_STATE_IDLE &&
+            game->gametime >= cust->update_time) {
+            // TODO
+        }
+    }
 }
 
 
@@ -190,13 +304,13 @@ void
 sb_game_draw (SDL_Renderer        *renderer,
               sb_game_handle_type  game)
 {
-    ssize_t           i;
-    int               startx;
-    int               starty;
-    int               endx;
-    int               endy;
-    sb_customer_type *cust;
-    sb_cable_type    *cable;
+    ssize_t                i;
+    int                    startx;
+    int                    starty;
+    int                    endx;
+    int                    endy;
+    sb_game_customer_type *cust;
+    sb_cable_type         *cable;
 
     SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
     SDL_RenderClear(renderer);
@@ -210,7 +324,12 @@ sb_game_draw (SDL_Renderer        *renderer,
                                cust->color.g,
                                cust->color.b,
                                cust->color.a);
-        SDL_RenderDrawRect(renderer, &cust->mugshot_rect);
+
+        if (cust->line_state == LINE_STATE_DIALING) {
+            SDL_RenderFillRect(renderer, &cust->mugshot_rect);
+        } else {
+            SDL_RenderDrawRect(renderer, &cust->mugshot_rect);
+        }
     }
 
     for (i = 0; i < game->cable_count; i++) {
@@ -278,10 +397,10 @@ sb_game_draw (SDL_Renderer        *renderer,
 sb_game_handle_type
 sb_game_setup (void)
 {
-    size_t               i;
-    sb_customer_type    *cust;
-    sb_cable_type       *cable;
-    sb_game_handle_type  game;
+    size_t                 i;
+    sb_game_customer_type *cust;
+    sb_cable_type         *cable;
+    sb_game_handle_type    game;
 
     game = calloc(1, sizeof(*game));
     if (game == NULL) {
@@ -294,8 +413,14 @@ sb_game_setup (void)
 
     game->held_cable = NULL;
 
+    game->gametime = 0;
+    game->next_call_time = random_range(NEW_CALL_TIME_MIN, NEW_CALL_TIME_MAX);
+
     for (i = 0; i < game->customer_count; i++) {
         cust = &game->customers[i];
+
+        cust->index = i;
+        cust->line_state = LINE_STATE_IDLE;
 
         cust->mugshot_rect.x = (i % 4) * 100;
         cust->mugshot_rect.y = (i / 4) * 50;
