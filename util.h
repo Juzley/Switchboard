@@ -4,6 +4,7 @@
 
 #include <stdbool.h>
 #include <SDL2/SDL.h>
+#include <SDL2/SDL_image.h>
 
 
 /*
@@ -41,6 +42,29 @@ static inline long
 random_range (long min, long max)
 {
     return min + random_at_most(max - min);
+}
+
+
+static inline SDL_Texture *
+load_texture (const char   *filename,
+              SDL_Renderer *renderer)
+{
+    SDL_Surface *surf;
+    SDL_Texture *result = NULL;
+
+    surf = IMG_Load(filename);
+    if (surf != NULL) {
+        result = SDL_CreateTextureFromSurface(renderer, surf);
+    }
+
+    return result;
+}
+
+
+static inline void
+free_texture (SDL_Texture *texture)
+{
+    SDL_DestroyTexture(texture);
 }
 
 

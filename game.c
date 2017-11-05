@@ -69,6 +69,8 @@ typedef struct sb_game_customer {
     uint16_t                 score;
     SDL_Rect                 port_rect;
     SDL_Rect                 mugshot_rect;
+    SDL_Rect                 lamp_rect;
+    SDL_Rect                 light_rect;
     SDL_Color                color;
     sb_cable_type           *port_cable;
     struct sb_game_customer *target_cust;
@@ -101,6 +103,10 @@ typedef struct sb_game {
     size_t                  cable_count;
     sb_cable_type           cables[MAX_CABLES];
     sb_cable_type          *held_cable;
+    SDL_Texture            *console_texture;
+    SDL_Texture            *port_texture;
+    SDL_Texture            *lamp_texture;
+    SDL_Texture            *flash_texture;
 } sb_game_type;
 
 
@@ -384,10 +390,18 @@ sb_game_draw (SDL_Renderer        *renderer,
     SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
     SDL_RenderClear(renderer);
 
+    rect.x = 0;
+    rect.y = 0;
+    rect.w = 800;
+    rect.h = 400;
+    SDL_RenderCopy(renderer, game->console_texture, NULL, &rect);
+
     for (i = 0; i < game->customer_count; i++) {
         cust = &game->customers[i];
         SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255);
-        SDL_RenderDrawRect(renderer, &cust->port_rect);
+        SDL_RenderCopy(renderer, game->port_texture, NULL, &cust->port_rect);
+        SDL_RenderCopy(renderer, game->lamp_texture, NULL, &cust->lamp_rect);
+
         SDL_SetRenderDrawColor(renderer,
                                cust->color.r,
                                cust->color.g,
@@ -480,21 +494,32 @@ sb_game_draw (SDL_Renderer        *renderer,
  * See comment in game.h for more details.
  */
 sb_game_handle_type
-sb_game_setup (void)
+sb_game_setup (SDL_Renderer *renderer)
 {
     size_t                 i;
     size_t                 j;
     sb_game_customer_type *cust;
     sb_cable_type         *cable;
     sb_game_handle_type    game;
+    uint8_t                columns;
+    uint8_t                rows;
+    uint32_t               column_spacing;
+    uint32_t               row_spacing;
 
     game = calloc(1, sizeof(*game));
-    if (game == NULL) {
-        return NULL;
-    }
+    
+    // TODO: Proper media loading.
+    game->console_texture = load_texture("media/console.png", renderer);
+    game->port_texture = load_texture("media/port.png", renderer);
+    game->lamp_texture = load_texture("media/lamp.png", renderer);
+    game->flash_texture = load_texture("media/light.png", renderer);
+
 
     // TODO: Eventually layout etc will be done per-level etc.
     game->customer_count = 16;
+    columns = 4;
+    rows = game->customer_count / columns;
+
     game->cable_count = 6;
 
     game->held_cable = NULL;
@@ -502,21 +527,33 @@ sb_game_setup (void)
     game->gametime = 0;
     game->next_call_time = random_range(NEW_CALL_TIME_MIN, NEW_CALL_TIME_MAX);
 
+    column_spacing = 800 / (columns + 1);
+    row_spacing = 400 / (rows + 1);
     for (i = 0; i < game->customer_count; i++) {
         cust = &game->customers[i];
 
         cust->index = i;
         cust->line_state = LINE_STATE_IDLE;
 
-        cust->mugshot_rect.x = (i % 4) * 100;
-        cust->mugshot_rect.y = (i / 4) * 50;
-        cust->mugshot_rect.w = 32;
-        cust->mugshot_rect.h = 32;
+        cust->mugshot_rect.x = column_spacing * ((i % columns) + 1) - 40;
+        cust->mugshot_rect.y = row_spacing * ((i / columns) + 1) - 24;
+        cust->mugshot_rect.w = 48;
+        cust->mugshot_rect.h = 48;
 
         cust->port_rect.x = cust->mugshot_rect.x + cust->mugshot_rect.w;
         cust->port_rect.y = cust->mugshot_rect.y;
-        cust->port_rect.w = cust->mugshot_rect.w;
-        cust->port_rect.h = cust->mugshot_rect.h;
+        cust->port_rect.w = 32;
+        cust->port_rect.h = 32;
+        
+        cust->lamp_rect.x = cust->port_rect.x;
+        cust->lamp_rect.y = cust->port_rect.y + cust->port_rect.h;
+        cust->lamp_rect.w = 32;
+        cust->lamp_rect.h = 16;
+
+        cust->light_rect.x = cust->lamp_rect.x + 7;
+        cust->light_rect.y = cust->lamp_rect.y - 1;
+        cust->light_rect.w = 18;
+        cust->light_rect.h = 18;
 
         cust->color.r = i * 15;
         cust->color.g = 255 - cust->color.r;
@@ -558,5 +595,9 @@ sb_game_setup (void)
 void
 sb_game_cleanup(sb_game_handle_type game)
 {
+    free_texture(game->flash_texture);
+    free_texture(game->lamp_texture);
+    free_texture(game->port_texture);
+    free_texture(game->console_texture);
     free(game);
 }

@@ -8,7 +8,7 @@
 typedef struct sb_game *sb_game_handle_type;
 
 
-sb_game_handle_type sb_game_setup(void);
+sb_game_handle_type sb_game_setup(SDL_Renderer *renderer);
 void sb_game_cleanup(sb_game_handle_type game);
 void sb_game_event(SDL_Event           *e,
                    sb_game_handle_type  game);

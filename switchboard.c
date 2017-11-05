@@ -23,7 +23,7 @@ main (int argc, char *argv[])
                               SDL_WINDOW_SHOWN);
     renderer = SDL_CreateRenderer(window, -1, 0);
 
-    game = sb_game_setup();
+    game = sb_game_setup(renderer);
 
     while (run) {
         while (SDL_PollEvent(&e)) {
