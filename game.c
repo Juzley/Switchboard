@@ -10,32 +10,10 @@
 
 
 /*
- * The range of times (in ms) between new calls.
+ * Range of times (in ms) between new calls.
  */
 #define NEW_CALL_TIME_MIN 1000
 #define NEW_CALL_TIME_MAX 10000
-
-
-/*
- * The range of times (in ms) a customer will wait without a response from the
- * operator.
- */
-#define HANGUP_TIME_MIN 5000
-#define HANGUP_TIME_MAX 10000
-
-
-/*
- * The range of times (in ms) a customer will take to answer the phone.
- */
-#define ANSWER_TIME_MIN 500
-#define ANSWER_TIME_MAX 5000
-
-
-/*
- * The range of times (in ms) a connected call will last.
- */
-#define CALL_TIME_MIN 5000
-#define CALL_TIME_MAX 20000
 
 
 /*
@@ -49,7 +27,34 @@ typedef enum {
     LINE_STATE_ANSWERING,
     LINE_STATE_OPERATOR_REPLY,
     LINE_STATE_BUSY,
+    LINE_STATE_COUNT
 } sb_line_state_type;
+
+
+/*
+ * Structure representing the minumum and maximum times a customer will stay
+ * in a given state.
+ */
+typedef struct {
+    uint32_t min;
+    uint32_t max;
+} sb_line_state_update_range_type;
+
+
+/*
+ * An array of the min amd max times a customer stay in each state, indexed
+ * by the state enum value.
+ */
+static sb_line_state_update_range_type
+sb_game_line_state_update_ranges[LINE_STATE_COUNT] =
+{
+    { 0,     0 },     // LINE_STATE_IDLE
+    { 5000,  10000 }, // LINE_STATE_DIALING
+    { 10000, 20000 }, // LINE_STATE_OPERATOR_REQUEST
+    { 500,   5000 },  // LINE_STATE_ANSWERING
+    { 5000,  10000 }, // LINE_STATE_OPERATOR_REPLY
+    { 8000,  40000 }, // LINE_STATE_BUSY
+};
 
 
 /*
@@ -65,8 +70,8 @@ typedef struct sb_cable sb_cable_type;
 typedef struct sb_game_customer {
     size_t                   index;
     sb_line_state_type       line_state;
-    uint32_t                 update_time;
-    uint16_t                 score;
+    uint32_t                 last_update;
+    uint32_t                 next_update;
     SDL_Rect                 port_rect;
     SDL_Rect                 mugshot_rect;
     SDL_Rect                 lamp_rect;
@@ -87,7 +92,6 @@ struct sb_cable {
     SDL_Rect               cable_base_rect;
     SDL_Rect               speak_button_rect;
     SDL_Rect               dial_button_rect;
-    bool                   speak_active;
     SDL_Color              color;
 };
 
@@ -103,11 +107,28 @@ typedef struct sb_game {
     size_t                  cable_count;
     sb_cable_type           cables[MAX_CABLES];
     sb_cable_type          *held_cable;
+    sb_cable_type          *active_cable;
     SDL_Texture            *console_texture;
     SDL_Texture            *port_texture;
     SDL_Texture            *lamp_texture;
     SDL_Texture            *flash_texture;
+    SDL_Texture            *plug_connected_texture;
+    SDL_Texture            *plug_loose_texture;
+    SDL_Texture            *mug_background_texture;
 } sb_game_type;
+
+
+static void
+sb_game_update_customer_state (sb_game_customer_type *cust,
+                               sb_game_handle_type    game,
+                               sb_line_state_type     state)
+{
+    cust->line_state = state;
+    cust->last_update = game->gametime;
+    cust->next_update = random_range(
+                 game->gametime + sb_game_line_state_update_ranges[state].min,
+                 game->gametime + sb_game_line_state_update_ranges[state].max);
+}
 
 
 /*
@@ -189,6 +210,56 @@ sb_game_find_connected_customer (sb_game_customer_type *cust,
 
     return (result);
 }
+
+
+static void
+sb_game_talk_button_press (sb_cable_type       *cable,
+                           sb_game_handle_type  game)
+{
+    sb_game_customer_type *other_cust;
+
+    if (cable->customer == NULL) {
+        return;
+    }
+
+    if (game->active_cable == cable) {
+        /*
+         * Deactivate the cable.
+         */
+        game->active_cable = NULL;
+
+        if (cable->customer->line_state == LINE_STATE_OPERATOR_REPLY) {
+            other_cust = sb_game_find_connected_customer(
+                                                    cable->customer, game);
+            if (other_cust != NULL &&
+                other_cust->target_cust == cable->customer) {
+                /*
+                 * TODO: Add Points
+                 */
+                sb_game_update_customer_state(cable->customer, game,
+                                              LINE_STATE_BUSY);
+                sb_game_update_customer_state(other_cust, game,
+                                              LINE_STATE_BUSY);
+                /*
+                 * The above functions will have given the two customers a
+                 * different update time - we want both customers to move back
+                 * to idle at the same time.
+                 */
+                other_cust->next_update = cable->customer->next_update;
+            }
+        }
+    } else {
+        /*
+         * Activate the cable.
+         */
+        game->active_cable = cable;
+
+        if (cable->customer->line_state == LINE_STATE_DIALING) {
+            sb_game_update_customer_state(cable->customer, game,
+                                          LINE_STATE_OPERATOR_REQUEST);
+        }
+    }
+}
                                  
 
 
@@ -222,10 +293,8 @@ sb_game_mouse_button_event (SDL_MouseButtonEvent *e,
             /*
              * Check whether we've hit a talk button.
              */
-            if (cable->customer != NULL &&
-                cable->customer->line_state == LINE_STATE_DIALING &&
-                sb_point_in_rect(e->x, e->y, &cable->speak_button_rect)) {
-                cable->customer->line_state = LINE_STATE_OPERATOR_REQUEST;
+            if (sb_point_in_rect(e->x, e->y, &cable->speak_button_rect)) {
+                sb_game_talk_button_press(cable, game);
             }
 
             /*
@@ -234,10 +303,9 @@ sb_game_mouse_button_event (SDL_MouseButtonEvent *e,
             if (cable->customer != NULL &&
                 cable->customer->line_state == LINE_STATE_IDLE &&
                 sb_point_in_rect(e->x, e->y, &cable->dial_button_rect)) {
-                cable->customer->line_state = LINE_STATE_ANSWERING;
-                cable->customer->update_time =
-                                random_range(game->gametime + ANSWER_TIME_MIN,
-                                             game->gametime + ANSWER_TIME_MAX);
+                sb_game_update_customer_state(cable->customer, game,
+                                              LINE_STATE_ANSWERING);
+                game->active_cable = NULL;
             }
         }
 
@@ -253,19 +321,28 @@ sb_game_mouse_button_event (SDL_MouseButtonEvent *e,
                  * customers back to idle.
                  */
                 if (cust->line_state == LINE_STATE_OPERATOR_REQUEST) {
-                    cust->line_state = LINE_STATE_IDLE;
+                    sb_game_update_customer_state(cust, game, LINE_STATE_IDLE);
                     // TODO: Lose points.
                 } else if(cust->line_state == LINE_STATE_OPERATOR_REPLY ||
                           cust->line_state == LINE_STATE_BUSY) {
                     // TODO: Lose points.
-                    cust->line_state = LINE_STATE_IDLE;
+                    sb_game_update_customer_state(cust, game, LINE_STATE_IDLE);
                     other_cust = sb_game_find_connected_customer(cust, game);
                     if (other_cust != NULL) {
-                        other_cust->line_state = LINE_STATE_IDLE;
+                        sb_game_update_customer_state(other_cust, game,
+                                                      LINE_STATE_IDLE);
                     }
                 }
 
+                /*
+                 * Unplugging the cable hangs up if it was active.
+                 */
+                if (game->held_cable == game->active_cable) {
+                    game->active_cable = NULL;
+                }
+
                 cust->port_cable = NULL;
+                game->held_cable->customer = NULL;
             }
         }
     } else if (e->type == SDL_MOUSEBUTTONUP) {
@@ -274,7 +351,6 @@ sb_game_mouse_button_event (SDL_MouseButtonEvent *e,
             for (i = 0; i < game->customer_count; i++) {
                 cust = &game->customers[i];
 
-                // TODO: Allow putting back in the same port.
                 if (sb_point_in_rect(e->x, e->y, &cust->port_rect) &&
                     cust->port_cable == NULL) {
                     cust->port_cable = game->held_cable;
@@ -313,13 +389,19 @@ sb_game_customer_update (sb_game_customer_type *cust,
 {
     switch (cust->line_state) {
     case LINE_STATE_DIALING:
+    case LINE_STATE_OPERATOR_REQUEST:
+    case LINE_STATE_OPERATOR_REPLY:
         // TODO: Lose points for this.
-        cust->line_state = LINE_STATE_IDLE;
+        sb_game_update_customer_state(cust, game, LINE_STATE_IDLE);
         break;
 
     case LINE_STATE_ANSWERING:
-        cust->line_state = LINE_STATE_OPERATOR_REPLY;
+        game->active_cable = cust->port_cable;
+        sb_game_update_customer_state(cust, game, LINE_STATE_OPERATOR_REPLY);
         break;
+
+    case LINE_STATE_BUSY:
+        sb_game_update_customer_state(cust, game, LINE_STATE_IDLE);
 
     case LINE_STATE_IDLE:
     default:
@@ -349,11 +431,8 @@ sb_game_update (uint32_t            frametime,
         src_cust = sb_game_find_idle_customer(game);
         tgt_cust = sb_game_find_target_customer(src_cust, game);
 
-        src_cust->line_state = LINE_STATE_DIALING;
+        sb_game_update_customer_state(src_cust, game, LINE_STATE_DIALING);
         src_cust->target_cust = tgt_cust;
-        src_cust->update_time = random_range(game->gametime + HANGUP_TIME_MIN,
-                                             game->gametime + HANGUP_TIME_MAX);
-
         game->next_call_time = random_range(
                                         game->gametime + NEW_CALL_TIME_MIN,
                                         game->gametime + NEW_CALL_TIME_MAX);
@@ -364,7 +443,7 @@ sb_game_update (uint32_t            frametime,
      */
     for (i = 0; i < game->customer_count; i++) {
         cust = &game->customers[i];
-        if (cust->update_time != 0 && game->gametime >= cust->update_time) {
+        if (cust->next_update != 0 && game->gametime >= cust->next_update) {
             sb_game_customer_update(cust, game);
         }
     }
@@ -383,6 +462,7 @@ sb_game_draw (SDL_Renderer        *renderer,
     int                    starty;
     int                    endx;
     int                    endy;
+    float                  progress;
     sb_game_customer_type *cust;
     sb_cable_type         *cable;
     SDL_Rect               rect;
@@ -395,6 +475,9 @@ sb_game_draw (SDL_Renderer        *renderer,
     rect.w = 800;
     rect.h = 400;
     SDL_RenderCopy(renderer, game->console_texture, NULL, &rect);
+    rect.y = 400;
+    rect.h = 200;
+    SDL_RenderCopy(renderer, game->console_texture, NULL, &rect);
 
     for (i = 0; i < game->customer_count; i++) {
         cust = &game->customers[i];
@@ -402,25 +485,68 @@ sb_game_draw (SDL_Renderer        *renderer,
         SDL_RenderCopy(renderer, game->port_texture, NULL, &cust->port_rect);
         SDL_RenderCopy(renderer, game->lamp_texture, NULL, &cust->lamp_rect);
 
+        SDL_RenderCopy(renderer, game->mug_background_texture, NULL,
+                       &cust->mugshot_rect);
+
+        rect = cust->mugshot_rect;
+        rect.x += 4;
+        rect.y += 4;
+        rect.w -= 8;
+        rect.h -= 8;
         SDL_SetRenderDrawColor(renderer,
                                cust->color.r,
                                cust->color.g,
                                cust->color.b,
                                cust->color.a);
+        SDL_RenderFillRect(renderer, &rect);
 
-        if (cust->line_state == LINE_STATE_DIALING) {
-            SDL_RenderFillRect(renderer, &cust->mugshot_rect);
-        } else {
-            SDL_RenderDrawRect(renderer, &cust->mugshot_rect);
+        if (cust->line_state != LINE_STATE_IDLE &&
+            cust->line_state != LINE_STATE_ANSWERING) {
+            progress = ((float)(cust->next_update - game->gametime) /
+                        (float)(cust->next_update - cust->last_update));
+            rect.y += rect.h - rect.h * progress + 1;
+            rect.h *= progress;
+
+            SDL_SetRenderDrawColor(renderer, 255, 255, 255, 100);
+            SDL_RenderFillRect(renderer, &rect);
+        }
+
+        if (cust->line_state == LINE_STATE_DIALING ||
+            cust->line_state == LINE_STATE_ANSWERING) {
+            if ((cust->next_update - game->gametime) % 1000 > 500) {
+                SDL_RenderCopy(renderer, game->flash_texture, NULL,
+                               &cust->light_rect);
+            }
+        } else if (cust->line_state == LINE_STATE_BUSY ||
+                   cust->line_state == LINE_STATE_OPERATOR_REQUEST ||
+                   cust->line_state == LINE_STATE_OPERATOR_REPLY) {
+            SDL_RenderCopy(renderer, game->flash_texture, NULL,
+                           &cust->light_rect);
         }
     }
 
     for (i = 0; i < game->cable_count; i++) {
         cable = &game->cables[i];
         SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255);
-        SDL_RenderDrawRect(renderer, &cable->cable_base_rect);
-        SDL_RenderDrawRect(renderer, &cable->speak_button_rect);
-        SDL_RenderDrawRect(renderer, &cable->dial_button_rect);
+        SDL_RenderCopy(renderer, game->port_texture, NULL,
+                       &cable->cable_base_rect);
+        if (cable->customer == NULL && game->held_cable != cable) {
+            SDL_RenderCopy(renderer, game->plug_connected_texture, NULL,
+                           &cable->cable_base_rect);
+        }
+        
+        if (game->active_cable == cable) {
+            SDL_RenderFillRect(renderer, &cable->speak_button_rect);
+        } else{
+            SDL_RenderDrawRect(renderer, &cable->speak_button_rect);
+        }
+
+        if (cable->customer &&
+            cable->customer->line_state == LINE_STATE_ANSWERING) {
+            SDL_RenderFillRect(renderer, &cable->dial_button_rect);
+        } else {
+            SDL_RenderDrawRect(renderer, &cable->dial_button_rect);
+        }
     }
 
     // Draw any cables that are plugged in.
@@ -428,14 +554,11 @@ sb_game_draw (SDL_Renderer        *renderer,
         cust = &game->customers[i];
         if (cust->port_cable != NULL) {
             cable = cust->port_cable;
+            SDL_RenderCopy(renderer, game->plug_connected_texture, NULL,
+                           &cust->port_rect);
+
             sb_rect_center(&cable->cable_base_rect, &startx, &starty);
             sb_rect_center(&cust->port_rect, &endx, &endy);
-
-            SDL_SetRenderDrawColor(renderer,
-                                   cable->color.r,
-                                   cable->color.g,
-                                   cable->color.b,
-                                   cable->color.a);
             SDL_SetRenderDrawColor(renderer,
                                    cable->color.r,
                                    cable->color.g,
@@ -450,8 +573,8 @@ sb_game_draw (SDL_Renderer        *renderer,
         cable = game->held_cable;
 
         (void)SDL_GetMouseState(&endx, &endy);
-        sb_rect_center(&cable->cable_base_rect, &startx, &starty);
 
+        sb_rect_center(&cable->cable_base_rect, &startx, &starty);
         SDL_SetRenderDrawColor(renderer,
                                cable->color.r,
                                cable->color.g,
@@ -461,6 +584,7 @@ sb_game_draw (SDL_Renderer        *renderer,
     }
 
     // Draw "conversations" for customers who are talking to the operator.
+    // TODO: Make these speech bubbles.
     for (i = 0; i < game->customer_count; i++) {
         cust = &game->customers[i];
         if (cust->line_state == LINE_STATE_OPERATOR_REQUEST) {
@@ -513,6 +637,11 @@ sb_game_setup (SDL_Renderer *renderer)
     game->port_texture = load_texture("media/port.png", renderer);
     game->lamp_texture = load_texture("media/lamp.png", renderer);
     game->flash_texture = load_texture("media/light.png", renderer);
+    game->plug_connected_texture = load_texture("media/plug_connected.png",
+                                                renderer);
+    game->plug_loose_texture = load_texture("media/plug_loose.png", renderer);
+    game->mug_background_texture = load_texture("media/mug_background.png",
+                                                renderer);
 
 
     // TODO: Eventually layout etc will be done per-level etc.
@@ -561,14 +690,15 @@ sb_game_setup (SDL_Renderer *renderer)
         cust->color.a = 255;
     }
 
+    column_spacing = 800 / (game->cable_count / 2 + 1);
     for (i = 0; i < game->cable_count / 2; i++) {
         for (j = 0; j < 2; j++) {
             cable = &game->cables[i * 2 + j];
 
             cable->index = i * 2 + j;
 
-            cable->cable_base_rect.x = i * 100 + j * 32;
-            cable->cable_base_rect.y = 400;
+            cable->cable_base_rect.x = ((i + 1) * column_spacing + j * 48) - 40;
+            cable->cable_base_rect.y = 420;
             cable->cable_base_rect.w = 32;
             cable->cable_base_rect.h = 32;
 
@@ -595,6 +725,9 @@ sb_game_setup (SDL_Renderer *renderer)
 void
 sb_game_cleanup(sb_game_handle_type game)
 {
+    free_texture(game->mug_background_texture);
+    free_texture(game->plug_loose_texture);
+    free_texture(game->plug_connected_texture);
     free_texture(game->flash_texture);
     free_texture(game->lamp_texture);
     free_texture(game->port_texture);

@@ -22,6 +22,7 @@ main (int argc, char *argv[])
                               800, 600,
                               SDL_WINDOW_SHOWN);
     renderer = SDL_CreateRenderer(window, -1, 0);
+    (void)SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);
 
     game = sb_game_setup(renderer);
 
