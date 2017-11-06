@@ -51,7 +51,7 @@ sb_game_line_state_update_ranges[LINE_STATE_COUNT] =
 {
     { 0,     0 },     // LINE_STATE_IDLE
     { 5000,  10000 }, // LINE_STATE_DIALING
-    { 10000, 20000 }, // LINE_STATE_OPERATOR_REQUEST
+    { 20000, 30000 }, // LINE_STATE_OPERATOR_REQUEST
     { 500,   5000 },  // LINE_STATE_ANSWERING
     { 5000,  10000 }, // LINE_STATE_OPERATOR_REPLY
     { 8000,  40000 }, // LINE_STATE_BUSY
@@ -116,6 +116,7 @@ typedef struct sb_game {
     SDL_Texture            *plug_connected_texture;
     SDL_Texture            *plug_loose_texture;
     SDL_Texture            *mug_background_texture;
+    SDL_Texture            *speech_bubble_texture;
 } sb_game_type;
 
 
@@ -153,7 +154,7 @@ sb_game_find_idle_customer (sb_game_handle_type game)
         }
     }
 
-    if (idle_count >= 0) {
+    if (idle_count > 0) {
         /*
          * Pick a random idle customer, loop through the array skipping
          * non-idle customers.
@@ -205,7 +206,7 @@ sb_game_find_connected_customer (sb_game_customer_type *cust,
 
     if (cable != NULL) {
         matching_cable = &game->cables[
-                    cable->index % 2 ? cable->index + 1 : cable->index - 1];
+                    cable->index % 2 == 0 ? cable->index + 1 : cable->index - 1];
         result = matching_cable->customer;
     }
 
@@ -645,29 +646,31 @@ sb_game_draw (SDL_Renderer        *renderer,
     }
 
     // Draw "conversations" for customers who are talking to the operator.
-    // TODO: Make these speech bubbles.
     for (i = 0; i < game->customer_count; i++) {
         cust = &game->customers[i];
-        if (cust->line_state == LINE_STATE_OPERATOR_REQUEST) {
+        if ((cust->line_state == LINE_STATE_OPERATOR_REQUEST ||
+             cust->line_state == LINE_STATE_OPERATOR_REPLY) &&
+             cust->port_cable == game->active_cable) {
             rect = cust->mugshot_rect;
-            rect.x += 16;
-            rect.y += 16;
-            SDL_SetRenderDrawColor(renderer,
-                                   cust->target_cust->color.r,
-                                   cust->target_cust->color.g,
-                                   cust->target_cust->color.b,
-                                   cust->target_cust->color.a);
-            SDL_RenderDrawRect(renderer, &rect);
-        } else if (cust->line_state == LINE_STATE_OPERATOR_REPLY) {
-            rect = cust->mugshot_rect;
-            rect.x += 16;
-            rect.y += 16;
-            SDL_SetRenderDrawColor(renderer,
-                                   cust->color.r,
-                                   cust->color.g,
-                                   cust->color.b,
-                                   cust->color.a);
-            SDL_RenderDrawRect(renderer, &rect);
+            rect.x += 24;
+            rect.y -= 48;
+            rect.w = 100;
+            rect.h = 76;
+            SDL_RenderCopy(renderer, game->speech_bubble_texture, NULL,
+                           &rect);
+
+            if (cust->line_state == LINE_STATE_OPERATOR_REQUEST) {
+                rect.x += 30;
+                rect.y += 12;
+                rect.w = 40;
+                rect.h = 40;
+                SDL_SetRenderDrawColor(renderer,
+                                       cust->target_cust->color.r,
+                                       cust->target_cust->color.g,
+                                       cust->target_cust->color.b,
+                                       cust->target_cust->color.a);
+                SDL_RenderFillRect(renderer, &rect);
+            }
         }
     }
 
@@ -703,6 +706,8 @@ sb_game_setup (SDL_Renderer *renderer)
     game->plug_loose_texture = load_texture("media/plug_loose.png", renderer);
     game->mug_background_texture = load_texture("media/mug_background.png",
                                                 renderer);
+    game->speech_bubble_texture = load_texture("media/speech_bubble.png",
+                                               renderer);
 
 
     // TODO: Eventually layout etc will be done per-level etc.
@@ -786,6 +791,7 @@ sb_game_setup (SDL_Renderer *renderer)
 void
 sb_game_cleanup(sb_game_handle_type game)
 {
+    free_texture(game->speech_bubble_texture);
     free_texture(game->mug_background_texture);
     free_texture(game->plug_loose_texture);
     free_texture(game->plug_connected_texture);
