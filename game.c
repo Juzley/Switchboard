@@ -1,6 +1,7 @@
 #include <SDL2/SDL.h>
 #include "game.h"
 #include "util.h"
+#include "math.h"
 
 /*
  * Max numbers of game entities, for sizing arrays.
@@ -450,6 +451,55 @@ sb_game_update (uint32_t            frametime,
 }
 
 
+void
+sb_game_draw_cable_cord (SDL_Renderer        *renderer,
+                         int                  startx,
+                         int                  starty,
+                         int                  endx,
+                         int                  endy,
+                         SDL_Color            color,
+                         sb_game_handle_type  game)
+{
+    int      distx = startx - endx;
+    int      disty = starty - endy;
+    int      centerx;
+    int      centery;
+    float    line_length;
+    int      render_count; 
+    int      i;
+    SDL_Rect rect;
+
+    line_length = sqrtf(distx * distx + disty * disty);
+    render_count = line_length / 4;
+
+    /*
+     * If the line is too short, return.
+     */
+    if (render_count == 0) {
+        return;
+    }
+
+    SDL_SetRenderDrawColor(renderer,
+                           color.r,
+                           color.g,
+                           color.b,
+                           color.a);
+
+    for (i = 0; i < render_count; i++) {
+        centerx = startx + ((((float)i / (float)render_count - 1)) * distx);
+        centery = starty + ((((float)i / (float)render_count - 1)) * disty);
+
+        rect.x = centerx - 8;
+        rect.y = centery - 8;
+        rect.w = 16;
+        rect.h = 16;
+        //SDL_RenderFillRect(renderer, &rect);
+        SDL_RenderCopy(renderer, game->plug_connected_texture, NULL, &rect);
+        
+    }
+}
+
+
 /*
  * See comment in game.h for more details.
  */
@@ -525,6 +575,9 @@ sb_game_draw (SDL_Renderer        *renderer,
         }
     }
 
+    /*
+     * Draw the cables bases, buttons etc.
+     */
     for (i = 0; i < game->cable_count; i++) {
         cable = &game->cables[i];
         SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255);
@@ -549,7 +602,9 @@ sb_game_draw (SDL_Renderer        *renderer,
         }
     }
 
-    // Draw any cables that are plugged in.
+    /*
+     * Draw any cables that are plugged in.
+     */
     for (i = 0; i < game->customer_count; i++) {
         cust = &game->customers[i];
         if (cust->port_cable != NULL) {
@@ -565,10 +620,14 @@ sb_game_draw (SDL_Renderer        *renderer,
                                    cable->color.b,
                                    cable->color.a);
             SDL_RenderDrawLine(renderer, startx, starty, endx, endy);
+            sb_game_draw_cable_cord(renderer, endx, endy, startx, starty,
+                                    cable->color, game);
         }
     }
 
-    // If we're currently holding a cable end, draw the cable.
+    /*
+     * If we're currently holding a cable end, draw the cable.
+     */
     if (game->held_cable != NULL) {
         cable = game->held_cable;
 
@@ -581,6 +640,8 @@ sb_game_draw (SDL_Renderer        *renderer,
                                cable->color.b,
                                cable->color.a);
         SDL_RenderDrawLine(renderer, startx, starty, endx, endy);
+        sb_game_draw_cable_cord(renderer, endx, endy, startx, starty,
+                                cable->color, game);
     }
 
     // Draw "conversations" for customers who are talking to the operator.
