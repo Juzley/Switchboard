@@ -70,7 +70,3 @@ sb_gamestate_draw (SDL_Renderer *renderer)
     assert(sb_gamestate_mgr.gamestate_count > 0);
     TOP_GAMESTATE.draw_cb(renderer, TOP_GAMESTATE.ctx);
 }
-
-
-
-

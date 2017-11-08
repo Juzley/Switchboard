@@ -6,13 +6,22 @@
 #include "game.h"
 
 
+static bool sb_run = true;
+
+
+void
+sb_exit (void)
+{
+    sb_run = false;
+}
+
+
 int
 main (int argc, char *argv[])
 {
     SDL_Window          *window;
     SDL_Renderer        *renderer;
     SDL_Event            e;
-    bool                 run = true;
     uint32_t             last_ticks = 0;
     uint32_t             ticks;
     uint32_t             frametime;
@@ -33,10 +42,10 @@ main (int argc, char *argv[])
     sb_menu_main_setup(renderer);
     sb_gamestate_push(sb_menu_main_get_gamestate());
 
-    while (run) {
+    while (sb_run) {
         while (SDL_PollEvent(&e)) {
             if (e.type == SDL_QUIT) {
-                run = false;
+                sb_run = false;
             } else {
                 sb_gamestate_event(&e);
             }
