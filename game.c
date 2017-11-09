@@ -476,7 +476,7 @@ sb_game_draw_cable_cord (SDL_Renderer *renderer,
     SDL_Rect rect;
 
     line_length = sqrtf(distx * distx + disty * disty);
-    render_count = line_length / 4;
+    render_count = line_length / 2;
 
     /*
      * If the line is too short, return.
@@ -495,10 +495,10 @@ sb_game_draw_cable_cord (SDL_Renderer *renderer,
         centerx = startx + ((((float)i / (float)render_count - 1)) * distx);
         centery = starty + ((((float)i / (float)render_count - 1)) * disty);
 
-        rect.x = centerx - 8;
-        rect.y = centery - 8;
-        rect.w = 16;
-        rect.h = 16;
+        rect.x = centerx - 4;
+        rect.y = centery - 4;
+        rect.w = 8;
+        rect.h = 8;
         //SDL_RenderFillRect(renderer, &rect);
         SDL_RenderCopy(renderer, game->plug_connected_texture, NULL, &rect);
         
@@ -529,8 +529,8 @@ sb_game_draw (SDL_Renderer *renderer,
     rect.w = 800;
     rect.h = 400;
     SDL_RenderCopy(renderer, game->console_texture, NULL, &rect);
-    rect.y = 400;
-    rect.h = 200;
+    rect.y = 500;
+    rect.h = 100;
     SDL_RenderCopy(renderer, game->console_texture, NULL, &rect);
 
     for (i = 0; i < game->customer_count; i++) {
@@ -585,10 +585,12 @@ sb_game_draw (SDL_Renderer *renderer,
     for (i = 0; i < game->cable_count; i++) {
         cable = &game->cables[i];
         SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255);
-        SDL_RenderCopy(renderer, game->port_texture, NULL,
-                       &cable->cable_base_rect);
+        /*
+         * The cable is not held or plugged in - draw the connector at the
+         * base.
+         */
         if (cable->customer == NULL && game->held_cable != cable) {
-            SDL_RenderCopy(renderer, game->plug_connected_texture, NULL,
+            SDL_RenderCopy(renderer, game->plug_loose_texture, NULL,
                            &cable->cable_base_rect);
         }
         
@@ -646,6 +648,11 @@ sb_game_draw (SDL_Renderer *renderer,
         SDL_RenderDrawLine(renderer, startx, starty, endx, endy);
         sb_game_draw_cable_cord(renderer, endx, endy, startx, starty,
                                 cable->color, game);
+
+        rect = game->held_cable->cable_base_rect;
+        rect.x = endx - rect.w / 2;
+        rect.y = endy - rect.h / 2;
+        SDL_RenderCopy(renderer, game->plug_loose_texture, NULL, &rect);
     }
 
     // Draw "conversations" for customers who are talking to the operator.
@@ -765,8 +772,8 @@ sb_game_setup (SDL_Renderer *renderer)
             cable->index = i * 2 + j;
 
             cable->cable_base_rect.x = ((i + 1) * column_spacing + j * 48) - 40;
-            cable->cable_base_rect.y = 420;
-            cable->cable_base_rect.w = 32;
+            cable->cable_base_rect.y = 480;
+            cable->cable_base_rect.w = 16;
             cable->cable_base_rect.h = 32;
 
             cable->speak_button_rect = cable->cable_base_rect;
