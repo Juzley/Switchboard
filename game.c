@@ -484,11 +484,10 @@ sb_game_draw_cable_cord (SDL_Renderer *renderer,
         return;
     }
 
-    SDL_SetRenderDrawColor(renderer,
+    SDL_SetTextureColorMod(game->plug_connected_texture,
                            color.r,
                            color.g,
-                           color.b,
-                           color.a);
+                           color.b);
 
     for (i = 0; i < render_count; i++) {
         centerx = startx + ((((float)i / (float)render_count - 1)) * distx);
@@ -778,7 +777,7 @@ sb_game_setup (SDL_Renderer *renderer)
             cable->index = i * 2 + j;
 
             cable->cable_base_rect.x = ((i + 1) * column_spacing + j * 48) - 40;
-            cable->cable_base_rect.y = 480;
+            cable->cable_base_rect.y = 470;
             cable->cable_base_rect.w = 24;
             cable->cable_base_rect.h = 48;
 
