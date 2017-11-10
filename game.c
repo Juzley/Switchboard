@@ -76,7 +76,6 @@ typedef struct sb_game_customer {
     uint32_t                 next_update;
     SDL_Rect                 port_rect;
     SDL_Rect                 mugshot_rect;
-    SDL_Rect                 lamp_rect;
     SDL_Rect                 light_rect;
     SDL_Color                color;
     sb_cable_type           *port_cable;
@@ -111,8 +110,8 @@ typedef struct sb_game {
     sb_cable_type          *held_cable;
     sb_cable_type          *active_cable;
     SDL_Texture            *console_texture;
+    SDL_Texture            *panel_texture;
     SDL_Texture            *port_texture;
-    SDL_Texture            *lamp_texture;
     SDL_Texture            *flash_texture;
     SDL_Texture            *plug_connected_texture;
     SDL_Texture            *plug_loose_texture;
@@ -524,23 +523,25 @@ sb_game_draw (SDL_Renderer *renderer,
     SDL_Rect               rect;
     sb_game_type          *game = &sb_game;
 
+    /*
+     * Draw the background
+     */
+    rect.x = 110;
+    rect.y = 10;
+    rect.w = 580;
+    rect.h = 480;
+    SDL_RenderCopy(renderer, game->panel_texture, NULL, &rect);
     rect.x = 0;
-    rect.y = 0;
-    rect.w = 800;
-    rect.h = 400;
-    SDL_RenderCopy(renderer, game->console_texture, NULL, &rect);
     rect.y = 500;
+    rect.w = 800;
     rect.h = 100;
     SDL_RenderCopy(renderer, game->console_texture, NULL, &rect);
 
+    /*
+     * Draw customer ports + mugshots.
+     */
     for (i = 0; i < game->customer_count; i++) {
         cust = &game->customers[i];
-        SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255);
-        SDL_RenderCopy(renderer, game->port_texture, NULL, &cust->port_rect);
-        SDL_RenderCopy(renderer, game->lamp_texture, NULL, &cust->lamp_rect);
-
-        SDL_RenderCopy(renderer, game->mug_background_texture, NULL,
-                       &cust->mugshot_rect);
 
         rect = cust->mugshot_rect;
         rect.x += 4;
@@ -564,6 +565,12 @@ sb_game_draw (SDL_Renderer *renderer,
             SDL_SetRenderDrawColor(renderer, 255, 255, 255, 100);
             SDL_RenderFillRect(renderer, &rect);
         }
+        SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255);
+
+        SDL_RenderCopy(renderer, game->port_texture, NULL, &cust->port_rect);
+        SDL_RenderCopy(renderer, game->mug_background_texture, NULL,
+                       &cust->mugshot_rect);
+
 
         if (cust->line_state == LINE_STATE_DIALING ||
             cust->line_state == LINE_STATE_ANSWERING) {
@@ -615,8 +622,12 @@ sb_game_draw (SDL_Renderer *renderer,
         cust = &game->customers[i];
         if (cust->port_cable != NULL) {
             cable = cust->port_cable;
+            rect.x = cust->port_rect.x + 4;
+            rect.y = cust->port_rect.y + 4;
+            rect.w = 24;
+            rect.h = 24;
             SDL_RenderCopy(renderer, game->plug_connected_texture, NULL,
-                           &cust->port_rect);
+                           &rect);
 
             sb_rect_center(&cable->cable_base_rect, &startx, &starty);
             sb_rect_center(&cust->port_rect, &endx, &endy);
@@ -705,9 +716,9 @@ sb_game_setup (SDL_Renderer *renderer)
     game = &sb_game;
     
     // TODO: Proper media loading.
+    game->panel_texture = load_texture("media/panel.png", renderer);
     game->console_texture = load_texture("media/console.png", renderer);
     game->port_texture = load_texture("media/port.png", renderer);
-    game->lamp_texture = load_texture("media/lamp.png", renderer);
     game->flash_texture = load_texture("media/light.png", renderer);
     game->plug_connected_texture = load_texture("media/plug_connected.png",
                                                 renderer);
@@ -740,23 +751,18 @@ sb_game_setup (SDL_Renderer *renderer)
 
         cust->mugshot_rect.x = column_spacing * ((i % columns) + 1) - 40;
         cust->mugshot_rect.y = row_spacing * ((i / columns) + 1) - 24;
-        cust->mugshot_rect.w = 48;
-        cust->mugshot_rect.h = 48;
+        cust->mugshot_rect.w = 64;
+        cust->mugshot_rect.h = 64;
 
         cust->port_rect.x = cust->mugshot_rect.x + cust->mugshot_rect.w;
         cust->port_rect.y = cust->mugshot_rect.y;
         cust->port_rect.w = 32;
-        cust->port_rect.h = 32;
+        cust->port_rect.h = 64;
         
-        cust->lamp_rect.x = cust->port_rect.x;
-        cust->lamp_rect.y = cust->port_rect.y + cust->port_rect.h;
-        cust->lamp_rect.w = 32;
-        cust->lamp_rect.h = 16;
-
-        cust->light_rect.x = cust->lamp_rect.x + 7;
-        cust->light_rect.y = cust->lamp_rect.y - 1;
-        cust->light_rect.w = 18;
-        cust->light_rect.h = 18;
+        cust->light_rect.w = 16;
+        cust->light_rect.h = 16;
+        cust->light_rect.x = cust->port_rect.x + 8;
+        cust->light_rect.y = cust->port_rect.y + 40; 
 
         cust->color.r = i * 15;
         cust->color.g = 255 - cust->color.r;
@@ -773,8 +779,8 @@ sb_game_setup (SDL_Renderer *renderer)
 
             cable->cable_base_rect.x = ((i + 1) * column_spacing + j * 48) - 40;
             cable->cable_base_rect.y = 480;
-            cable->cable_base_rect.w = 16;
-            cable->cable_base_rect.h = 32;
+            cable->cable_base_rect.w = 24;
+            cable->cable_base_rect.h = 48;
 
             cable->speak_button_rect = cable->cable_base_rect;
             cable->speak_button_rect.y += 48;
@@ -804,7 +810,6 @@ sb_game_cleanup(void)
     free_texture(game->plug_loose_texture);
     free_texture(game->plug_connected_texture);
     free_texture(game->flash_texture);
-    free_texture(game->lamp_texture);
     free_texture(game->port_texture);
     free_texture(game->console_texture);
 }
