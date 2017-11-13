@@ -117,6 +117,9 @@ typedef struct sb_game {
     SDL_Texture            *plug_loose_texture;
     SDL_Texture            *mug_background_texture;
     SDL_Texture            *speech_bubble_texture;
+    SDL_Texture            *button_texture;
+    SDL_Texture            *button_flash_texture;
+    SDL_Texture            *cord_texture;
 } sb_game_type;
 
 
@@ -484,11 +487,7 @@ sb_game_draw_cable_cord (SDL_Renderer *renderer,
         return;
     }
 
-    SDL_SetTextureColorMod(game->plug_connected_texture,
-                           color.r,
-                           color.g,
-                           color.b);
-
+    SDL_SetTextureColorMod(game->cord_texture, color.r, color.g, color.b);
     for (i = 0; i < render_count; i++) {
         centerx = startx + ((((float)i / (float)render_count - 1)) * distx);
         centery = starty + ((((float)i / (float)render_count - 1)) * disty);
@@ -497,8 +496,7 @@ sb_game_draw_cable_cord (SDL_Renderer *renderer,
         rect.y = centery - 4;
         rect.w = 8;
         rect.h = 8;
-        //SDL_RenderFillRect(renderer, &rect);
-        SDL_RenderCopy(renderer, game->plug_connected_texture, NULL, &rect);
+        SDL_RenderCopy(renderer, game->cord_texture, NULL, &rect);
         
     }
 }
@@ -521,6 +519,9 @@ sb_game_draw (SDL_Renderer *renderer,
     sb_cable_type         *cable;
     SDL_Rect               rect;
     sb_game_type          *game = &sb_game;
+
+    SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255);
+    SDL_RenderClear(renderer);
 
     /*
      * Draw the background
@@ -600,18 +601,10 @@ sb_game_draw (SDL_Renderer *renderer,
                            &cable->cable_base_rect);
         }
         
-        if (game->active_cable == cable) {
-            SDL_RenderFillRect(renderer, &cable->speak_button_rect);
-        } else{
-            SDL_RenderDrawRect(renderer, &cable->speak_button_rect);
-        }
-
-        if (cable->customer &&
-            cable->customer->line_state == LINE_STATE_ANSWERING) {
-            SDL_RenderFillRect(renderer, &cable->dial_button_rect);
-        } else {
-            SDL_RenderDrawRect(renderer, &cable->dial_button_rect);
-        }
+        SDL_RenderCopy(renderer, game->button_texture, NULL,
+                       &cable->speak_button_rect);
+        SDL_RenderCopy(renderer, game->button_texture, NULL,
+                       &cable->dial_button_rect);
     }
 
     /*
@@ -726,6 +719,10 @@ sb_game_setup (SDL_Renderer *renderer)
                                                 renderer);
     game->speech_bubble_texture = load_texture("media/speech_bubble.png",
                                                renderer);
+    game->button_texture = load_texture("media/button.png", renderer);
+    game->button_flash_texture = load_texture("media/button_flash.png",
+                                              renderer);
+    game->cord_texture = load_texture("media/cord.png", renderer);
 
 
     // TODO: Eventually layout etc will be done per-level etc.
@@ -781,11 +778,21 @@ sb_game_setup (SDL_Renderer *renderer)
             cable->cable_base_rect.w = 24;
             cable->cable_base_rect.h = 48;
 
-            cable->speak_button_rect = cable->cable_base_rect;
-            cable->speak_button_rect.y += 48;
+            cable->speak_button_rect.x = cable->cable_base_rect.x - 6;
+            cable->speak_button_rect.y = cable->cable_base_rect.y + 64;
+            cable->speak_button_rect.w = 36;
+            cable->speak_button_rect.h = 12;
 
-            cable->dial_button_rect = cable->speak_button_rect;
-            cable->dial_button_rect.y += 48;
+            cable->speak_button_rect.x +=
+                (float)(cable->speak_button_rect.x + 18 - 400) * 0.07f;
+
+            cable->dial_button_rect.x = cable->cable_base_rect.x - 8;
+            cable->dial_button_rect.y += cable->speak_button_rect.y + 28;
+            cable->dial_button_rect.w = 40;
+            cable->dial_button_rect.h = 14;
+
+            cable->dial_button_rect.x +=
+                (float)(cable->dial_button_rect.x + 20 - 400) * 0.17f;
 
             cable->color.r = i * 75;
             cable->color.g = 255 - cust->color.r;
@@ -804,6 +811,9 @@ sb_game_cleanup(void)
 {
     sb_game_type *game = &sb_game;
 
+    free_texture(game->cord_texture);
+    free_texture(game->button_flash_texture);
+    free_texture(game->button_texture);
     free_texture(game->speech_bubble_texture);
     free_texture(game->mug_background_texture);
     free_texture(game->plug_loose_texture);
