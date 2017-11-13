@@ -551,6 +551,8 @@ sb_game_draw (SDL_Renderer *renderer,
         rect.y += 4;
         rect.w -= 8;
         rect.h -= 8;
+        SDL_SetRenderDrawColor(renderer, 200, 200, 255, 255);
+        SDL_RenderFillRect(renderer, &rect);
         SDL_RenderCopy(renderer, game->mugshot_textures[cust->index], NULL,
                        &rect);
 
@@ -611,7 +613,8 @@ sb_game_draw (SDL_Renderer *renderer,
     }
 
     /*
-     * Draw any cables that are plugged in.
+     * Draw any cables that are plugged in - draw all of the plugs before the
+     * cords, so that the plugs appear underneath the cords.
      */
     for (i = 0; i < game->customer_count; i++) {
         cust = &game->customers[i];
@@ -623,7 +626,17 @@ sb_game_draw (SDL_Renderer *renderer,
             rect.h = 24;
             SDL_RenderCopy(renderer, game->plug_connected_texture, NULL,
                            &rect);
+        }
+    }
 
+    for (i = 0; i < game->customer_count; i++) {
+        cust = &game->customers[i];
+        if (cust->port_cable != NULL) {
+            cable = cust->port_cable;
+            rect.x = cust->port_rect.x + 4;
+            rect.y = cust->port_rect.y + 4;
+            rect.w = 24;
+            rect.h = 24;
             sb_rect_center(&cable->cord_hole_rect, &startx, &starty);
             sb_rect_center(&rect, &endx, &endy);
             sb_game_draw_cable_cord(renderer, endx, endy, startx, starty,
