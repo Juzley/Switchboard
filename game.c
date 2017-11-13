@@ -8,7 +8,8 @@
  * Max numbers of game entities, for sizing arrays.
  */
 #define MAX_CUSTOMERS 32
-#define MAX_CABLES 32
+#define MAX_CABLES 16
+
 
 
 /*
@@ -77,7 +78,6 @@ typedef struct sb_game_customer {
     SDL_Rect                 port_rect;
     SDL_Rect                 mugshot_rect;
     SDL_Rect                 light_rect;
-    SDL_Color                color;
     sb_cable_type           *port_cable;
     struct sb_game_customer *target_cust;
 } sb_game_customer_type;
@@ -91,6 +91,7 @@ struct sb_cable {
     size_t                 index;
     sb_game_customer_type *customer;
     SDL_Rect               cable_base_rect;
+    SDL_Rect               cord_hole_rect;
     SDL_Rect               speak_button_rect;
     SDL_Rect               dial_button_rect;
     SDL_Color              color;
@@ -120,6 +121,8 @@ typedef struct sb_game {
     SDL_Texture            *button_texture;
     SDL_Texture            *button_flash_texture;
     SDL_Texture            *cord_texture;
+    SDL_Texture            *cord_hole_texture;
+    SDL_Texture            *mugshot_textures[MAX_CUSTOMERS];
 } sb_game_type;
 
 
@@ -548,12 +551,8 @@ sb_game_draw (SDL_Renderer *renderer,
         rect.y += 4;
         rect.w -= 8;
         rect.h -= 8;
-        SDL_SetRenderDrawColor(renderer,
-                               cust->color.r,
-                               cust->color.g,
-                               cust->color.b,
-                               cust->color.a);
-        SDL_RenderFillRect(renderer, &rect);
+        SDL_RenderCopy(renderer, game->mugshot_textures[cust->index], NULL,
+                       &rect);
 
         if (cust->line_state != LINE_STATE_IDLE &&
             cust->line_state != LINE_STATE_ANSWERING) {
@@ -592,6 +591,9 @@ sb_game_draw (SDL_Renderer *renderer,
     for (i = 0; i < game->cable_count; i++) {
         cable = &game->cables[i];
         SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255);
+        SDL_RenderCopy(renderer, game->cord_hole_texture, NULL,
+                       &cable->cord_hole_rect);
+
         /*
          * The cable is not held or plugged in - draw the connector at the
          * base.
@@ -600,6 +602,7 @@ sb_game_draw (SDL_Renderer *renderer,
             SDL_RenderCopy(renderer, game->plug_loose_texture, NULL,
                            &cable->cable_base_rect);
         }
+
         
         SDL_RenderCopy(renderer, game->button_texture, NULL,
                        &cable->speak_button_rect);
@@ -621,14 +624,8 @@ sb_game_draw (SDL_Renderer *renderer,
             SDL_RenderCopy(renderer, game->plug_connected_texture, NULL,
                            &rect);
 
-            sb_rect_center(&cable->cable_base_rect, &startx, &starty);
-            sb_rect_center(&cust->port_rect, &endx, &endy);
-            SDL_SetRenderDrawColor(renderer,
-                                   cable->color.r,
-                                   cable->color.g,
-                                   cable->color.b,
-                                   cable->color.a);
-            SDL_RenderDrawLine(renderer, startx, starty, endx, endy);
+            sb_rect_center(&cable->cord_hole_rect, &startx, &starty);
+            sb_rect_center(&rect, &endx, &endy);
             sb_game_draw_cable_cord(renderer, endx, endy, startx, starty,
                                     cable->color, game);
         }
@@ -642,13 +639,7 @@ sb_game_draw (SDL_Renderer *renderer,
 
         (void)SDL_GetMouseState(&endx, &endy);
 
-        sb_rect_center(&cable->cable_base_rect, &startx, &starty);
-        SDL_SetRenderDrawColor(renderer,
-                               cable->color.r,
-                               cable->color.g,
-                               cable->color.b,
-                               cable->color.a);
-        SDL_RenderDrawLine(renderer, startx, starty, endx, endy);
+        sb_rect_center(&cable->cord_hole_rect, &startx, &starty);
         sb_game_draw_cable_cord(renderer, endx, endy, startx, starty,
                                 cable->color, game);
 
@@ -677,12 +668,10 @@ sb_game_draw (SDL_Renderer *renderer,
                 rect.y += 12;
                 rect.w = 40;
                 rect.h = 40;
-                SDL_SetRenderDrawColor(renderer,
-                                       cust->target_cust->color.r,
-                                       cust->target_cust->color.g,
-                                       cust->target_cust->color.b,
-                                       cust->target_cust->color.a);
-                SDL_RenderFillRect(renderer, &rect);
+                SDL_RenderCopy(
+                    renderer,
+                    game->mugshot_textures[cust->target_cust->index],
+                    NULL, &rect);
             }
         }
     }
@@ -704,6 +693,7 @@ sb_game_setup (SDL_Renderer *renderer)
     uint8_t                rows;
     uint32_t               column_spacing;
     uint32_t               row_spacing;
+    char                   filename[128];
 
     game = &sb_game;
     
@@ -723,10 +713,15 @@ sb_game_setup (SDL_Renderer *renderer)
     game->button_flash_texture = load_texture("media/button_flash.png",
                                               renderer);
     game->cord_texture = load_texture("media/cord.png", renderer);
+    game->cord_hole_texture = load_texture("media/cord_hole.png", renderer);
 
+    for (i = 0; i < MAX_CUSTOMERS; i++) {
+        sprintf(filename, "media/mugshots/%zu.png", i + 1);
+        game->mugshot_textures[i] = load_texture(filename, renderer);
+    }
 
     // TODO: Eventually layout etc will be done per-level etc.
-    game->customer_count = 16;
+    game->customer_count = 20;
     columns = 4;
     rows = game->customer_count / columns;
 
@@ -737,16 +732,15 @@ sb_game_setup (SDL_Renderer *renderer)
     game->gametime = 0;
     game->next_call_time = random_range(NEW_CALL_TIME_MIN, NEW_CALL_TIME_MAX);
 
-    column_spacing = 800 / (columns + 1);
-    row_spacing = 400 / (rows + 1);
+    column_spacing = 600 / (columns + 1);
     for (i = 0; i < game->customer_count; i++) {
         cust = &game->customers[i];
 
         cust->index = i;
         cust->line_state = LINE_STATE_IDLE;
 
-        cust->mugshot_rect.x = column_spacing * ((i % columns) + 1) - 40;
-        cust->mugshot_rect.y = row_spacing * ((i / columns) + 1) - 24;
+        cust->mugshot_rect.x = 100 + column_spacing * ((i % columns) + 1) - 40;
+        cust->mugshot_rect.y = 64 * ((i / columns) + 1) - 24;
         cust->mugshot_rect.w = 64;
         cust->mugshot_rect.h = 64;
 
@@ -759,11 +753,6 @@ sb_game_setup (SDL_Renderer *renderer)
         cust->light_rect.h = 16;
         cust->light_rect.x = cust->port_rect.x + 8;
         cust->light_rect.y = cust->port_rect.y + 40; 
-
-        cust->color.r = i * 15;
-        cust->color.g = 255 - cust->color.r;
-        cust->color.b = (cust->color.r * cust->color.g) % 255;
-        cust->color.a = 255;
     }
 
     column_spacing = 800 / (game->cable_count / 2 + 1);
@@ -777,6 +766,11 @@ sb_game_setup (SDL_Renderer *renderer)
             cable->cable_base_rect.y = 470;
             cable->cable_base_rect.w = 24;
             cable->cable_base_rect.h = 48;
+
+            cable->cord_hole_rect.x = cable->cable_base_rect.x + 4;
+            cable->cord_hole_rect.y = 510;
+            cable->cord_hole_rect.w = 16;
+            cable->cord_hole_rect.h = 4;
 
             cable->speak_button_rect.x = cable->cable_base_rect.x - 6;
             cable->speak_button_rect.y = cable->cable_base_rect.y + 64;
@@ -795,8 +789,8 @@ sb_game_setup (SDL_Renderer *renderer)
                 (float)(cable->dial_button_rect.x + 20 - 400) * 0.17f;
 
             cable->color.r = i * 75;
-            cable->color.g = 255 - cust->color.r;
-            cable->color.b = (cust->color.r * cust->color.g) % 255;
+            cable->color.g = 255 - cable->color.r;
+            cable->color.b = (cable->color.r * cable->color.g) % 255;
             cable->color.a = 255;
         }
     }
@@ -809,8 +803,15 @@ sb_game_setup (SDL_Renderer *renderer)
 void
 sb_game_cleanup(void)
 {
+    size_t i;
+
     sb_game_type *game = &sb_game;
 
+    for (i = 0; i < MAX_CUSTOMERS; i++) {
+        free_texture(game->mugshot_textures[i]);
+    }
+
+    free_texture(game->cord_hole_texture);
     free_texture(game->cord_texture);
     free_texture(game->button_flash_texture);
     free_texture(game->button_texture);
