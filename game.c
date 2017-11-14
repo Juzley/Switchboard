@@ -11,12 +11,15 @@
 #define MAX_CABLES 16
 
 
-
 /*
  * Range of times (in ms) between new calls.
  */
 #define NEW_CALL_TIME_MIN 1000
 #define NEW_CALL_TIME_MAX 10000
+
+
+#define SUCCESS_POINTS 10 
+#define FAILURE_POINTS 5
 
 
 /*
@@ -104,6 +107,7 @@ struct sb_cable {
 typedef struct sb_game {
     uint32_t                gametime;
     uint32_t                next_call_time;
+    uint32_t                score;
     size_t                  customer_count;
     sb_game_customer_type   customers[MAX_CUSTOMERS];
     size_t                  cable_count;
@@ -127,6 +131,20 @@ typedef struct sb_game {
 
 
 static sb_game_type sb_game;
+
+
+static void
+sb_game_handle_success (sb_game_type *game)
+{
+    game->score += SUCCESS_POINTS;
+}
+
+
+static void
+sb_game_handle_failure (sb_game_type *game)
+{
+    game->score = MIN(0, game->score - FAILURE_POINTS);
+}
 
 
 static void
@@ -244,9 +262,7 @@ sb_game_talk_button_press (sb_cable_type *cable,
                                                     cable->customer, game);
             if (other_cust != NULL &&
                 other_cust->target_cust == cable->customer) {
-                /*
-                 * TODO: Add Points
-                 */
+                sb_game_handle_success(game);
                 sb_game_update_customer_state(cable->customer, game,
                                               LINE_STATE_BUSY);
                 sb_game_update_customer_state(other_cust, game,
@@ -332,11 +348,11 @@ sb_game_mouse_button_event (SDL_MouseButtonEvent *e,
                  * customers back to idle.
                  */
                 if (cust->line_state == LINE_STATE_OPERATOR_REQUEST) {
+                    sb_game_handle_failure(game);
                     sb_game_update_customer_state(cust, game, LINE_STATE_IDLE);
-                    // TODO: Lose points.
                 } else if(cust->line_state == LINE_STATE_OPERATOR_REPLY ||
                           cust->line_state == LINE_STATE_BUSY) {
-                    // TODO: Lose points.
+                    sb_game_handle_failure(game);
                     sb_game_update_customer_state(cust, game, LINE_STATE_IDLE);
                     other_cust = sb_game_find_connected_customer(cust, game);
                     if (other_cust != NULL) {
@@ -402,7 +418,7 @@ sb_game_customer_update (sb_game_customer_type *cust,
     case LINE_STATE_DIALING:
     case LINE_STATE_OPERATOR_REQUEST:
     case LINE_STATE_OPERATOR_REPLY:
-        // TODO: Lose points for this.
+        sb_game_handle_failure(game);
         sb_game_update_customer_state(cust, game, LINE_STATE_IDLE);
         break;
 
@@ -523,7 +539,7 @@ sb_game_draw (SDL_Renderer *renderer,
     SDL_Rect               rect;
     sb_game_type          *game = &sb_game;
 
-    SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255);
+    SDL_SetRenderDrawColor(renderer, 180, 180, 180, 255);
     SDL_RenderClear(renderer);
 
     /*
