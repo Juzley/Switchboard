@@ -5,6 +5,7 @@
 #include "game.h"
 #include "util.h"
 #include "menu_pause.h"
+#include "endgame.h"
 
 /*
  * Max numbers of game entities, for sizing arrays.
@@ -478,6 +479,11 @@ sb_game_update (uint32_t  frametime,
     size_t                 i;
 
     game->gametime += frametime;
+
+    if (sb_game_remaining_time(game) == 0) {
+        sb_endgame_reset();
+        sb_gamestate_push(sb_endgame_get_gamestate());
+    }
 
     if (game->gametime >= game->next_call_time) {
         /*

@@ -4,6 +4,7 @@
 #include "gamestate.h"
 #include "menu_main.h"
 #include "menu_pause.h"
+#include "endgame.h"
 #include "game.h"
 
 
@@ -40,6 +41,7 @@ main (int argc, char *argv[])
     (void)TTF_Init();
 
     sb_game_setup(renderer);
+    sb_endgame_setup(renderer);
     sb_menu_pause_setup(renderer);
     sb_menu_main_setup(renderer);
     sb_gamestate_push(sb_menu_main_get_gamestate());
@@ -67,6 +69,7 @@ main (int argc, char *argv[])
 
     sb_menu_pause_cleanup();
     sb_menu_main_cleanup();
+    sb_endgame_cleanup();
     sb_game_cleanup();
 
     TTF_Quit();
