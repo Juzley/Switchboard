@@ -1,4 +1,5 @@
 #include <SDL2/SDL.h>
+#include <SDL2/SDL_ttf.h>
 #include "gamestate.h"
 #include "game.h"
 #include "util.h"
@@ -16,6 +17,10 @@
  */
 #define NEW_CALL_TIME_MIN 1000
 #define NEW_CALL_TIME_MAX 10000
+
+
+#define HUD_FONT_NAME "media/carbon.ttf"
+#define HUD_FONT_SIZE 32
 
 
 #define SUCCESS_POINTS 10 
@@ -106,6 +111,7 @@ struct sb_cable {
  */
 typedef struct sb_game {
     uint32_t                gametime;
+    uint32_t                leveltime;
     uint32_t                next_call_time;
     uint32_t                score;
     size_t                  customer_count;
@@ -114,6 +120,7 @@ typedef struct sb_game {
     sb_cable_type           cables[MAX_CABLES];
     sb_cable_type          *held_cable;
     sb_cable_type          *active_cable;
+    TTF_Font               *hud_font;
     SDL_Texture            *console_texture;
     SDL_Texture            *panel_texture;
     SDL_Texture            *port_texture;
@@ -131,6 +138,19 @@ typedef struct sb_game {
 
 
 static sb_game_type sb_game;
+
+
+static inline uint32_t
+sb_game_remaining_time (sb_game_type *game)
+{
+    const uint32_t leveltime_ms = game->leveltime * 1000;
+    if (game->gametime >= leveltime_ms) {
+        return 0;
+    }
+
+    return leveltime_ms - game->gametime;
+}
+
 
 
 static void
@@ -479,6 +499,41 @@ sb_game_update (uint32_t  frametime,
 
 
 static void
+sb_game_draw_hud (SDL_Renderer *renderer,
+                  sb_game_type *game)
+{
+    SDL_Surface *surf;
+    SDL_Texture *texture;
+    SDL_Color    color = { 0, 0, 0, 255 };
+    char         buf[32];
+    SDL_Rect     rect = { 0, 0, 0, 0 };
+    uint32_t     remaining;
+
+    /*
+     * TODO: This is not very efficient - probably want to do bitmapped fonts
+     * instead, or at least only re-draw the text when the score changes.
+     */
+    sprintf(buf, "%d", game->score);
+    surf = TTF_RenderText_Blended(game->hud_font, buf, color);
+    texture = SDL_CreateTextureFromSurface(renderer, surf);
+    (void)SDL_QueryTexture(texture, NULL, NULL, &rect.w, &rect.h);
+    SDL_RenderCopy(renderer, texture, NULL, &rect);
+    SDL_FreeSurface(surf);
+    free_texture(texture);
+
+    rect.y += rect.h;
+    remaining = sb_game_remaining_time(game) / 1000;
+    sprintf(buf, "%d:%02d", remaining / 60, remaining % 60);
+    surf = TTF_RenderText_Blended(game->hud_font, buf, color);
+    texture = SDL_CreateTextureFromSurface(renderer, surf);
+    (void)SDL_QueryTexture(texture, NULL, NULL, &rect.w, &rect.h);
+    SDL_RenderCopy(renderer, texture, NULL, &rect);
+    SDL_FreeSurface(surf);
+    free_texture(texture);
+}
+
+
+static void
 sb_game_draw_cable_cord (SDL_Renderer *renderer,
                          int           startx,
                          int           starty,
@@ -704,6 +759,9 @@ sb_game_draw (SDL_Renderer *renderer,
             }
         }
     }
+
+    // Draw the HUD
+    sb_game_draw_hud(renderer, game);
 }
 
 
@@ -725,8 +783,11 @@ sb_game_setup (SDL_Renderer *renderer)
     char                   filename[128];
 
     game = &sb_game;
+
+    game->leveltime = 120;
     
     // TODO: Proper media loading.
+    game->hud_font = TTF_OpenFont(HUD_FONT_NAME, HUD_FONT_SIZE);
     game->panel_texture = load_texture("media/panel.png", renderer);
     game->console_texture = load_texture("media/console.png", renderer);
     game->port_texture = load_texture("media/port.png", renderer);
@@ -851,6 +912,8 @@ sb_game_cleanup(void)
     free_texture(game->flash_texture);
     free_texture(game->port_texture);
     free_texture(game->console_texture);
+
+    TTF_CloseFont(game->hud_font);
 }
 
 
