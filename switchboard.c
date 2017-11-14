@@ -3,6 +3,7 @@
 #include <SDL2/SDL_ttf.h>
 #include "gamestate.h"
 #include "menu_main.h"
+#include "menu_pause.h"
 #include "game.h"
 
 
@@ -39,6 +40,7 @@ main (int argc, char *argv[])
     (void)TTF_Init();
 
     sb_game_setup(renderer);
+    sb_menu_pause_setup(renderer);
     sb_menu_main_setup(renderer);
     sb_gamestate_push(sb_menu_main_get_gamestate());
 
@@ -63,6 +65,7 @@ main (int argc, char *argv[])
         SDL_RenderPresent(renderer);
     }
 
+    sb_menu_pause_cleanup();
     sb_menu_main_cleanup();
     sb_game_cleanup();
 

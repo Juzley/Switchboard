@@ -12,11 +12,17 @@ typedef void (*sb_gamestate_update_fn_type)(uint32_t  frametime,
 typedef void (*sb_gamestate_draw_fn_type)(SDL_Renderer *renderer,
                                           void         *ctx);
 
+
+typedef uint8_t sb_gamestate_flag_type;
+#define SB_GAMESTATE_FLAG_DEFAULT    0x00
+#define SB_GAMESTATE_FLAG_DRAW_UNDER 0x01
+
 typedef struct sb_gamestate {
     sb_gamestate_event_fn_type   event_cb;
     sb_gamestate_update_fn_type  update_cb;
     sb_gamestate_draw_fn_type    draw_cb;
     void                        *ctx;
+    sb_gamestate_flag_type       flags;
 } sb_gamestate_type;
 
 

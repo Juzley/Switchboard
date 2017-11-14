@@ -1,9 +1,10 @@
 #include <SDL2/SDL.h>
 #include <SDL2/SDL_ttf.h>
+#include <math.h>
 #include "gamestate.h"
 #include "game.h"
 #include "util.h"
-#include "math.h"
+#include "menu_pause.h"
 
 /*
  * Max numbers of game entities, for sizing arrays.
@@ -422,6 +423,12 @@ sb_game_event (SDL_Event *e,
     case SDL_MOUSEBUTTONDOWN:
     case SDL_MOUSEBUTTONUP:
         sb_game_mouse_button_event(&e->button, &sb_game);
+        break;
+
+    case SDL_KEYDOWN:
+        if (e->key.keysym.sym == SDLK_ESCAPE) {
+            sb_gamestate_push(sb_menu_pause_get_gamestate());
+        }
         break;
 
     default:

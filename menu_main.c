@@ -32,6 +32,7 @@ sb_menu_main_event (SDL_Event *e,
             sb_exit();
         }
         break;
+
     default:
         break;
     }
@@ -81,7 +82,7 @@ sb_menu_main_setup (SDL_Renderer *renderer)
                            &sb_menu_main_exit_rect.w,
                            &sb_menu_main_exit_rect.h);
     sb_menu_main_exit_rect.x = 0;
-    sb_menu_main_exit_rect.y = 64;
+    sb_menu_main_exit_rect.y = FONT_SIZE;
 
     TTF_CloseFont(font);
 }

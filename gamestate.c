@@ -67,6 +67,17 @@ sb_gamestate_update (uint32_t frametime)
 void
 sb_gamestate_draw (SDL_Renderer *renderer)
 {
+    sb_gamestate_type *under_gamestate;
+
     assert(sb_gamestate_mgr.gamestate_count > 0);
+
+    if ((TOP_GAMESTATE.flags & SB_GAMESTATE_FLAG_DRAW_UNDER) != 0 &&
+        sb_gamestate_mgr.gamestate_count > 1) {
+        under_gamestate = &sb_gamestate_mgr.gamestate_stack[
+                                        sb_gamestate_mgr.gamestate_count - 2];
+        under_gamestate->draw_cb(renderer, under_gamestate->ctx);
+    }
+
+
     TOP_GAMESTATE.draw_cb(renderer, TOP_GAMESTATE.ctx);
 }
