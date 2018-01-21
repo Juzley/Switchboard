@@ -109,6 +109,33 @@ struct sb_cable {
 
 
 /*
+ * The count of numbers on the rotary dial.
+ */
+#define ROTARY_NUMS 10
+#define ROTARY_SEGMENT_ANGLE 30
+#define ROTARY_START_ANGLE 150
+#define ROTARY_RETURN_ANGLE 120
+#define ROTARY_RETURN_SPEED 0.01f
+
+
+typedef enum {
+    SB_GAME_ROTARY_STATE_IDLE,
+    SB_GAME_ROTARY_STATE_TURNING,
+    SB_GAME_ROTARY_STATE_RETURNING,
+} sb_game_rotary_state_type;
+
+
+typedef struct sb_game_rotary {
+    sb_game_rotary_state_type state;
+    SDL_Rect                  bounds;
+    SDL_Rect                  number_rects[ROTARY_NUMS];
+    size_t                    turning_index;
+    float                     start_angle;
+    float                     angle;
+} sb_game_rotary_type;
+
+
+/*
  * Structure containing game state.
  */
 typedef struct sb_game {
@@ -122,6 +149,7 @@ typedef struct sb_game {
     sb_cable_type           cables[MAX_CABLES];
     sb_cable_type          *held_cable;
     sb_cable_type          *active_cable;
+    sb_game_rotary_type     rotary;
     TTF_Font               *hud_font;
     SDL_Texture            *console_texture;
     SDL_Texture            *panel_texture;
@@ -135,11 +163,57 @@ typedef struct sb_game {
     SDL_Texture            *button_flash_texture;
     SDL_Texture            *cord_texture;
     SDL_Texture            *cord_hole_texture;
+    SDL_Texture            *rotary_texture;
+    SDL_Texture            *rotary_top_texture;
     SDL_Texture            *mugshot_textures[MAX_CUSTOMERS];
 } sb_game_type;
 
 
 static sb_game_type sb_game;
+
+
+/*
+ * Return the absolute angle of a line from a given point to the center of the
+ * rotary dialer. The angle returned is between 0 and 360.
+ */
+static inline float
+sb_game_rotary_angle (sb_game_type *game,
+                      int           x,
+                      int           y)
+{
+    float angle;
+
+    // TODO: Use the center point, not hardcoded coords.
+    angle = atan2f(x - 100, 100 - y); 
+    while (angle < 0.0f) {
+        angle += M_PI * 2;
+    }
+
+    return angle;
+}
+
+
+/*
+ * Return the the angle of a line from a given point to the center of the
+ * rotary dialer, normalized such that the line between the center and the
+ * first number on the dialer makes an angle of 0.
+ */
+static inline float
+sb_game_rotary_angle_normalized (sb_game_type *game,
+                                 int           x,
+                                 int           y)
+{
+    float angle;
+
+    angle = sb_game_rotary_angle(game, x, y);
+    angle -= DEG_TO_RAD(ROTARY_RETURN_ANGLE);
+    while (angle < 0.0f) {
+        angle += M_PI * 2;
+    }
+
+    return angle;
+}
+
 
 
 static inline uint32_t
@@ -309,7 +383,63 @@ sb_game_talk_button_press (sb_cable_type *cable,
         }
     }
 }
-                                 
+
+
+/*
+ * Handle a mouse motion event.
+ */
+static void
+sb_game_mouse_motion_event (SDL_MouseMotionEvent *e,
+                            sb_game_type         *game)
+{
+    float angle;
+
+    if (game->rotary.state == SB_GAME_ROTARY_STATE_TURNING) {
+        angle = sb_game_rotary_angle_normalized(game, e->x, e->y);
+
+        if (game->rotary.angle > DEG_TO_RAD(300) && angle < DEG_TO_RAD(60)) {
+            /*
+             * Check if we've hit the end of the turn - where the angle will
+             * suddenly go from high to low.
+             */
+            game->rotary.state = SB_GAME_ROTARY_STATE_RETURNING;
+            angle = DEG_TO_RAD(360.0f);
+        } else if (angle < game->rotary.start_angle) {
+            /*
+             * Don't let the player wind the wrong way - clamp the angle at
+             * the start angle.
+             */
+            angle = game->rotary.start_angle;
+        }
+
+        game->rotary.angle = angle;
+        printf("%f\n", RAD_TO_DEG(angle));
+    }
+}
+
+
+/*
+ * Check whether a click has hit the rotary dial.
+ */
+static void
+sb_game_check_rotary_click (SDL_MouseButtonEvent *e,
+                            sb_game_type         *game)
+{
+    size_t i;
+
+    for (i = 0; i < ROTARY_NUMS; i++) {
+        if (sb_point_in_rect(e->x, e->y, &game->rotary.number_rects[i])) {
+            game->rotary.state = SB_GAME_ROTARY_STATE_TURNING;
+            game->rotary.turning_index = i;
+
+            game->rotary.start_angle =
+                sb_game_rotary_angle_normalized(game, e->x, e->y);
+            game->rotary.angle = game->rotary.start_angle;
+
+        }
+    }
+}
+
 
 
 /*
@@ -394,6 +524,9 @@ sb_game_mouse_button_event (SDL_MouseButtonEvent *e,
                 game->held_cable->customer = NULL;
             }
         }
+
+        // Check whether we're dialing with the rotary dialer.
+        sb_game_check_rotary_click(e, game);
     } else if (e->type == SDL_MOUSEBUTTONUP) {
         // Check whether we're putting a cable somewhere.
         if (game->held_cable != NULL) {
@@ -408,6 +541,11 @@ sb_game_mouse_button_event (SDL_MouseButtonEvent *e,
             }
 
             game->held_cable = NULL;
+        }
+
+        // Check whether we're releasing the rotary dialer
+        if (game->rotary.state == SB_GAME_ROTARY_STATE_TURNING) {
+            game->rotary.state = SB_GAME_ROTARY_STATE_RETURNING;
         }
     }
 }
@@ -424,6 +562,10 @@ sb_game_event (SDL_Event *e,
     case SDL_MOUSEBUTTONDOWN:
     case SDL_MOUSEBUTTONUP:
         sb_game_mouse_button_event(&e->button, &sb_game);
+        break;
+
+    case SDL_MOUSEMOTION:
+        sb_game_mouse_motion_event(&e->motion, &sb_game);
         break;
 
     case SDL_KEYDOWN:
@@ -507,6 +649,66 @@ sb_game_update (uint32_t  frametime,
         if (cust->next_update != 0 && game->gametime >= cust->next_update) {
             sb_game_customer_update(cust, game);
         }
+    }
+
+    /*
+     * Rotate the rotary dial if required.
+     */
+    if (game->rotary.state == SB_GAME_ROTARY_STATE_RETURNING) {
+        game->rotary.angle -= ROTARY_RETURN_SPEED * frametime;
+        
+        if (game->rotary.angle <= game->rotary.start_angle) {
+            // TODO: Enter the number.
+            game->rotary.state = SB_GAME_ROTARY_STATE_IDLE;
+        }
+    }
+}
+
+
+static void
+sb_game_draw_rotary (SDL_Renderer *renderer,
+                     sb_game_type *game)
+{
+    SDL_Rect rect;
+    float    segment_angle;
+    float    angle;
+    size_t   i;
+    int      mousex;
+    int      mousey;
+    int      endx;
+    int      endy;
+
+    if (game->rotary.state == SB_GAME_ROTARY_STATE_IDLE) {
+        endx = 100 + 50 * sinf(0);
+        endy = 100 - 50 * cosf(0);
+        angle = 0;
+    } else {
+        endx = 100 + 50 * sinf(game->rotary.angle - game->rotary.start_angle);
+        endy = 100 - 50 * cosf(game->rotary.angle - game->rotary.start_angle);
+        angle = game->rotary.angle - game->rotary.start_angle;
+    }
+    rect.x = 50;
+    rect.y = 50;
+    rect.w = 100;
+    rect.h = 100;
+    SDL_RenderCopyEx(renderer, game->rotary_texture, NULL, &rect,
+                     RAD_TO_DEG(angle), NULL, SDL_FLIP_NONE);
+    SDL_RenderCopy(renderer, game->rotary_top_texture, NULL, &rect);
+
+    for (i = 0; i < ROTARY_NUMS; i++) {
+        angle = DEG_TO_RAD(ROTARY_SEGMENT_ANGLE * i + ROTARY_START_ANGLE);
+
+        game->rotary.number_rects[i].w = 16;
+        game->rotary.number_rects[i].h = 16;
+        game->rotary.number_rects[i].x = 100 + 42 * sinf(angle) - 8;
+        game->rotary.number_rects[i].y = 100 - 42 * cosf(angle) - 8;
+
+        if (i == 0) {
+            SDL_SetRenderDrawColor(renderer, 255, 0, 0, 255);
+        } else {
+            SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255);
+        }
+        //SDL_RenderFillRect(renderer, &game->rotary.number_rects[i]);
     }
 }
 
@@ -773,6 +975,8 @@ sb_game_draw (SDL_Renderer *renderer,
         }
     }
 
+    sb_game_draw_rotary(renderer, game);
+
     // Draw the HUD
     sb_game_draw_hud(renderer, game);
 }
@@ -817,6 +1021,8 @@ sb_game_setup (SDL_Renderer *renderer)
                                               renderer);
     game->cord_texture = load_texture("media/cord.png", renderer);
     game->cord_hole_texture = load_texture("media/cord_hole.png", renderer);
+    game->rotary_texture = load_texture("media/rotary.png", renderer);
+    game->rotary_top_texture = load_texture("media/rotary_top.png", renderer);
 
     for (i = 0; i < MAX_CUSTOMERS; i++) {
         sprintf(filename, "media/mugshots/%zu.png", i + 1);
@@ -914,6 +1120,8 @@ sb_game_cleanup(void)
         free_texture(game->mugshot_textures[i]);
     }
 
+    free_texture(game->rotary_top_texture);
+    free_texture(game->rotary_texture);
     free_texture(game->cord_hole_texture);
     free_texture(game->cord_texture);
     free_texture(game->button_flash_texture);

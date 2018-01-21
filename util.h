@@ -2,6 +2,7 @@
 #define __UTIL_H__
 
 
+#include <math.h>
 #include <stdbool.h>
 #include <SDL2/SDL.h>
 #include <SDL2/SDL_image.h>
@@ -9,6 +10,10 @@
 
 #define MIN(a, b) ((a) > (b) ? (b) : (a))
 #define MAX(a, b) ((a) < (b) ? (b) : (a))
+
+
+#define DEG_TO_RAD(angle) ((angle) * M_PI / 180.0)
+#define RAD_TO_DEG(angle) ((angle) * 180.0 / M_PI)
 
 
 /*
